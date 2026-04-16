@@ -2,12 +2,12 @@
 
 // {{CONFIG_LOADER}}
 
-// Set by compiler
 const isPreview = window.__PREVIEW_MODE__ === true;
 
 function show(id) { 
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); 
-  document.getElementById(id).classList.add('active'); 
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active'); 
 }
 
 function evalCond(cond, responses) {
@@ -24,6 +24,53 @@ function evalCond(cond, responses) {
   }
 }
 
+// Dial tick generation for ePAT visual aesthetics
+(function generateTicks() {
+  const containers = ['rotary-dial-ticks', 'training-dial-ticks'];
+  containers.forEach(cid => {
+    const c = document.getElementById(cid);
+    if (!c) return;
+    const isTrain = cid.includes('training');
+    const total = isTrain ? 60 : 72;
+    for (let i = 0; i < total; i++) {
+      const t = document.createElement('div');
+      t.className = isTrain ? 'training-tick' : 'dial-tick';
+      t.style.transform = `rotate(${i * (360/total)}deg)`;
+      if (i % 2 === 0) t.style.height = isTrain ? '8px' : '10px';
+      if (i % (total/4) === 0) { t.style.height = isTrain ? '12px' : '14px'; t.style.background = 'var(--fg-muted)'; }
+      c.appendChild(t);
+    }
+  });
+})();
+
+const Upload = {
+  send(sessionData, cb) {
+    if (isPreview) { if(cb) cb(); return; }
+    const a = document.createElement("a");
+    const blob = new Blob([JSON.stringify(sessionData, null, 2)], { type: "application/json" });
+    a.href = URL.createObjectURL(blob);
+    a.download = `${sessionData.type}_${sessionData.participantId}_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    if(cb) cb();
+  }
+};
+
+function collectDeviceMetadata() {
+  const ua = navigator.userAgent;
+  let deviceModel = 'Unknown', osName = 'Unknown', osVersion = '', browserName = 'Unknown', browserVersion = '';
+  if (/iPhone/.test(ua)) { deviceModel = 'iPhone'; osName = 'iOS'; const m = ua.match(/OS (\d+[_\.]\d+[_\.]?\d*)/); if (m) osVersion = m[1].replace(/_/g, '.'); }
+  else if (/Android/.test(ua)) { osName = 'Android'; const m = ua.match(/Android ([\d.]+)/); if (m) osVersion = m[1]; const dm = ua.match(/;\s*([^;)]+)\s*Build\//); if (dm) deviceModel = dm[1].trim(); else deviceModel = 'Android Device'; }
+  else if (/Mac OS X/.test(ua)) { osName = 'macOS'; const m = ua.match(/Mac OS X ([\d_]+)/); if (m) osVersion = m[1].replace(/_/g, '.'); deviceModel = 'Mac'; }
+  else if (/Windows/.test(ua)) { osName = 'Windows'; const m = ua.match(/Windows NT ([\d.]+)/); if (m) osVersion = m[1]; deviceModel = 'PC'; }
+
+  return {
+    userAgent: ua, deviceModel, osName, osVersion, browserName, browserVersion,
+    screenWidth: screen.width, screenHeight: screen.height,
+    devicePixelRatio: window.devicePixelRatio || 1, platform: navigator.platform || ''
+  };
+}
+
+// MAIN RUNTIME EXECUTOR
 (async function() {
   const config = await loadConfig();
   const params = new URLSearchParams(window.location.search);
@@ -34,325 +81,111 @@ function evalCond(cond, responses) {
   // {{EXPIRY_CHECK}}
   // {{PREVIEW_SESSION_FORCE}}
   
-  const sessionCfg = config.ema?.sessions?.find(s => s.id === sessionId) || { id: sessionId, label: sessionId };
-  document.getElementById('ema-greeting').textContent = config.study.greetings?.[sessionCfg.greeting_key] || sessionCfg.label || 'Check-In';
-
-  let sessionData = { 
-    participantID: '', 
-    session: sessionId, 
-    startTime: null,
-    endTime: null,
-    responses: {}, 
-    timestamps: {}, 
-    patData: null 
-  };
-  
-  let emaPages = [];
-  let currentPageIndex = 0;
-
-  // --- Auto-Save Caching Logic ---
-  function getCacheKey() {
-    return `ema_cache_${config.study.name.replace(/\s+/g,'')}_${sessionData.participantID}_${sessionId}`;
-  }
-
-  function saveCache() {
-    if (isPreview) return;
-    localStorage.setItem(getCacheKey(), JSON.stringify({ data: sessionData, page: currentPageIndex }));
-  }
-
-  function loadCache() {
-    if (isPreview) return false;
-    const c = localStorage.getItem(getCacheKey());
-    if (c) {
-      try {
-        const parsed = JSON.parse(c);
-        sessionData = parsed.data;
-        currentPageIndex = parsed.page;
-        return true;
-      } catch(e) { return false; }
-    }
-    return false;
-  }
-
-  function clearCache() {
-    if (!isPreview) localStorage.removeItem(getCacheKey());
-  }
-
-  // --- Initialization ---
   const pidInput = document.getElementById('pid-input');
   const startBtn = document.getElementById('start-btn');
 
+  if (params.get('id')) {
+    pidInput.value = params.get('id');
+    document.getElementById('participant-input-group').style.display = 'none';
+  }
+  if (params.get('day')) {
+    const dl = document.getElementById('day-label');
+    dl.textContent = `Day ${params.get('day')}`;
+    dl.style.display = 'block';
+  }
   pidInput.addEventListener('input', () => { startBtn.disabled = !pidInput.value.trim(); });
 
+  let sessionData = { 
+    sessionId: "ses_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+    participantId: '', 
+    day: parseInt(params.get('day')) || null,
+    type: "", phases: [], currentPhase: 0, counterbalance: null,
+    startedAt: null, device: null, data: [], status: "in_progress" 
+  };
+
+  const cbParam = params.get('cb');
+  const dynamicWindows = config.ema?.scheduling?.windows || [];
+  const windowIds = dynamicWindows.map(w => w.id);
+  
+  if (sessionId === 'onboarding') {
+    sessionData.type = "onboarding"; document.getElementById('task-subtitle').textContent = "Study Setup";
+  } else if (windowIds.includes(sessionId) || sessionId.startsWith('ema')) {
+    sessionData.type = "ema_only"; sessionData.phases = [sessionId];
+  } else if (sessionId.startsWith('pair_')) {
+    sessionData.type = "paired";
+    const slot = sessionId.replace('pair_', '');
+    const emaPhase = windowIds.includes(slot) ? slot : 'ema' + slot;
+    const cb = cbParam === 'pat_first' ? 'pat_first' : 'ema_first';
+    sessionData.counterbalance = cb; 
+    sessionData.phases = cb === 'ema_first' ? [emaPhase, 'pat'] : ['pat', emaPhase];
+    
+    const wCfg = dynamicWindows.find(w => w.id === slot);
+    document.getElementById('task-subtitle').textContent = wCfg ? wCfg.label : (slot.charAt(0).toUpperCase() + slot.slice(1) + " Session");
+  } else {
+    sessionData.type = "pat_only"; sessionData.phases = ['pat'];
+  }
+
+  // Dynamic greeting logic based on schedule windows
+  const cleanEmaId = sessionId.replace('pair_','').replace('ema','');
+  const matchedWindow = dynamicWindows.find(w => w.id === cleanEmaId);
+  document.getElementById('ema-greeting').textContent = config.study.greetings?.[cleanEmaId] || (matchedWindow ? matchedWindow.label : 'Check-In');
+
+  // {{MODULES_INJECT}}
+
   startBtn.addEventListener('click', () => {
-    sessionData.participantID = pidInput.value.trim();
+    sessionData.participantId = pidInput.value.trim();
+    sessionData.startedAt = new Date().toISOString();
+    sessionData.device = collectDeviceMetadata();
     
-    const resumed = loadCache();
-    if (!resumed) {
-      sessionData.startTime = new Date().toISOString();
-      currentPageIndex = 0;
+    if (window.ePATCore) window.ePATCore.AudioEngine.init();
+
+    if (sessionData.type === 'onboarding' && config.onboarding?.enabled) {
+      OnboardingSession.start();
+    } else {
+      runNextPhase();
     }
-    
-    startEMA();
   });
 
-  // ==========================================================
-  // EMA PAGINATION ENGINE
-  // ==========================================================
-  function buildPages() {
-    emaPages = [];
-    let currentBlock = [];
-    config.ema.questions.forEach(q => {
-      if (q.type === 'page_break') {
-        if (currentBlock.length > 0) { emaPages.push(currentBlock); currentBlock = []; }
-      } else {
-        currentBlock.push(q);
-      }
-    });
-    if (currentBlock.length > 0) emaPages.push(currentBlock);
-  }
-
-  function renderCurrentPage() {
-    const container = document.getElementById('ema-single-container');
-    const nextBtn = document.getElementById('ema-next-btn');
+  function runNextPhase() {
+    const phase = sessionData.phases[sessionData.currentPhase];
+    if (!phase) { finalizeSession(); return; }
     
-    // Fast-forward past pages where ALL questions are skipped by logic
-    let visibleQuestions = [];
-    while (currentPageIndex < emaPages.length) {
-      visibleQuestions = emaPages[currentPageIndex].filter(q => evalCond(q.condition, sessionData.responses));
-      if (visibleQuestions.length > 0) break;
-      currentPageIndex++;
+    if (phase === 'pat') {
+      if (config.tasks.includes('pat') && window.ePATCore) ePAT.startBaseline();
+      else advancePhase();
+    } else {
+      EMA.start(phase);
     }
-
-    // If we've passed all EMA pages, move to Tasks or Submit
-    if (currentPageIndex >= emaPages.length) {
-      if (config.tasks && config.tasks.includes('pat') && window.ePATCore) {
-        saveCache();
-        startPATSession();
-      } else {
-        finalizeSession();
-      }
-      return;
-    }
-
-    const pct = Math.round(((currentPageIndex + 1) / emaPages.length) * 100);
-    document.getElementById('ema-progress-fill').style.width = pct + '%';
-    container.innerHTML = '';
-
-    visibleQuestions.forEach(q => {
-      const wrapper = document.createElement('div');
-      wrapper.style.marginBottom = '48px';
-      
-      const qTitle = document.createElement('div');
-      qTitle.className = 'ema-question';
-      qTitle.textContent = q.text;
-      wrapper.appendChild(qTitle);
-
-      const checkSubmit = () => {
-        nextBtn.disabled = !visibleQuestions.every(q => !q.required || (sessionData.responses[q.id] !== undefined && sessionData.responses[q.id] !== ''));
-      };
-
-      if (q.type === 'slider') {
-        const mid = ((q.min||0) + (q.max||100)) / 2;
-        if (sessionData.responses[q.id] === undefined) sessionData.responses[q.id] = mid;
-        
-        const grp = document.createElement('div'); grp.className = 'slider-group';
-        const valDisp = document.createElement('div'); valDisp.className = 'slider-val-display';
-        valDisp.textContent = sessionData.responses[q.id] + (q.unit || '');
-        
-        const inp = document.createElement('input'); inp.type = 'range'; inp.className = 'range-slider';
-        inp.min = q.min; inp.max = q.max; inp.step = q.step || 1; inp.value = sessionData.responses[q.id];
-        
-        inp.addEventListener('input', () => {
-          sessionData.responses[q.id] = Number(inp.value);
-          sessionData.timestamps[q.id] = new Date().toISOString();
-          valDisp.textContent = inp.value + (q.unit || '');
-          checkSubmit();
-          saveCache();
-        });
-
-        const labels = document.createElement('div'); labels.className = 'slider-labels';
-        labels.innerHTML = `<span>${q.anchors[0]||''}</span><span>${q.anchors[1]||''}</span>`;
-        
-        grp.append(valDisp, inp, labels);
-        wrapper.appendChild(grp);
-      } 
-      else if (q.type === 'choice') {
-        const grp = document.createElement('div'); grp.className = 'bubble-group';
-        q.options.forEach(opt => {
-          const b = document.createElement('div'); b.className = 'bubble'; b.textContent = opt;
-          if (sessionData.responses[q.id] === opt) b.classList.add('selected');
-          b.onclick = () => {
-            grp.querySelectorAll('.bubble').forEach(x => x.classList.remove('selected'));
-            b.classList.add('selected');
-            sessionData.responses[q.id] = opt;
-            sessionData.timestamps[q.id] = new Date().toISOString();
-            checkSubmit();
-            saveCache();
-          };
-          grp.appendChild(b);
-        });
-        wrapper.appendChild(grp);
-      }
-      else if (q.type === 'checkbox') {
-        if (!Array.isArray(sessionData.responses[q.id])) sessionData.responses[q.id] = [];
-        const grp = document.createElement('div'); grp.className = 'bubble-group';
-        q.options.forEach(opt => {
-          const b = document.createElement('div'); b.className = 'bubble'; b.textContent = opt;
-          if (sessionData.responses[q.id].includes(opt)) b.classList.add('selected');
-          b.onclick = () => {
-            b.classList.toggle('selected');
-            const arr = sessionData.responses[q.id];
-            if (b.classList.contains('selected')) { if (!arr.includes(opt)) arr.push(opt); } 
-            else { const i = arr.indexOf(opt); if (i>-1) arr.splice(i, 1); }
-            sessionData.timestamps[q.id] = new Date().toISOString();
-            checkSubmit();
-            saveCache();
-          };
-          grp.appendChild(b);
-        });
-        wrapper.appendChild(grp);
-      }
-      else if (q.type === 'text' || q.type === 'numeric') {
-        const grp = document.createElement('div'); grp.className = 'input-group';
-        const inp = document.createElement('input'); 
-        inp.type = q.type === 'numeric' ? 'number' : 'text';
-        inp.placeholder = "Tap to answer";
-        if (sessionData.responses[q.id] !== undefined) inp.value = sessionData.responses[q.id];
-        
-        inp.addEventListener('input', () => {
-          sessionData.responses[q.id] = q.type === 'numeric' ? Number(inp.value) : inp.value;
-          sessionData.timestamps[q.id] = new Date().toISOString();
-          checkSubmit();
-          saveCache();
-        });
-        grp.appendChild(inp);
-        wrapper.appendChild(grp);
-      }
-
-      container.appendChild(wrapper);
-      checkSubmit();
-    });
-
-    nextBtn.textContent = (currentPageIndex === emaPages.length - 1) && (!config.tasks || !config.tasks.includes('pat')) ? 'Submit Check-In' : 'Next';
-    
-    // Animation trigger
-    container.classList.remove('fade-out', 'fade-in');
-    void container.offsetWidth;
-    container.classList.add('fade-in');
-    setTimeout(() => container.classList.remove('fade-in'), 50);
   }
 
-  function startEMA() {
-    buildPages();
-    show('screen-ema');
-    renderCurrentPage();
+  function advancePhase() { 
+    sessionData.currentPhase++; 
+    runNextPhase(); 
   }
 
-  document.getElementById('ema-next-btn').addEventListener('click', () => {
-    const container = document.getElementById('ema-single-container');
-    container.classList.add('fade-out');
-    setTimeout(() => {
-      currentPageIndex++;
-      saveCache();
-      renderCurrentPage();
-    }, 300);
-  });
-
-
-  // ==========================================================
-  // DATA EXPORT FORMATTING
-  // ==========================================================
   function finalizeSession() {
-    sessionData.endTime = new Date().toISOString();
-    clearCache(); // Remove from local storage since it's complete
-
+    sessionData.status = "complete";
+    sessionData.completedAt = new Date().toISOString();
+    
     if (isPreview) {
-      document.getElementById('screen-end').querySelector('p').textContent = '✓ Preview complete. (No data downloaded in preview mode).'; 
+      document.getElementById('screen-end').querySelector('p').textContent = '✓ Preview complete.'; 
       show('screen-end');
       return;
     }
 
-    const fmt = config.study.output_format || 'json';
-    let blob, filename;
-
-    if (fmt === 'csv') {
-      // Build Academic Long-Format CSV
-      const rows = [['ParticipantID', 'Session', 'StartTime', 'EndTime', 'QuestionID', 'QuestionType', 'QuestionText', 'Response', 'Timestamp']];
-      
-      const qs = config.ema.questions.filter(q => q.type !== 'page_break');
-      qs.forEach(q => { 
-        if (sessionData.responses[q.id] !== undefined) {
-          const resp = Array.isArray(sessionData.responses[q.id]) ? sessionData.responses[q.id].join('|') : sessionData.responses[q.id];
-          const text = q.text.replace(/"/g, '""'); // Escape quotes for CSV
-          rows.push([
-            sessionData.participantID, 
-            sessionData.session, 
-            sessionData.startTime, 
-            sessionData.endTime, 
-            q.id, 
-            q.type,
-            `"${text}"`, 
-            `"${resp}"`, 
-            sessionData.timestamps[q.id] || ''
-          ]); 
-        } 
-      });
-      
-      const csvStr = rows.map(r => r.join(',')).join('\n');
-      blob = new Blob([csvStr], {type:'text/csv'});
-      filename = `ema_${sessionData.participantID}_${sessionData.session}.csv`;
-      
-    } else {
-      // Clean JSON Output
-      const cleanJson = {
-        study: config.study.name,
-        participantID: sessionData.participantID,
-        session: sessionData.session,
-        startTime: sessionData.startTime,
-        endTime: sessionData.endTime,
-        data: config.ema.questions.filter(q => q.type !== 'page_break' && sessionData.responses[q.id] !== undefined).map(q => ({
-          question_id: q.id,
-          question_text: q.text,
-          type: q.type,
-          response: sessionData.responses[q.id],
-          timestamp: sessionData.timestamps[q.id]
-        })),
-        tasks: sessionData.patData ? { pat: sessionData.patData } : {}
-      };
-      blob = new Blob([JSON.stringify(cleanJson, null, 2)], {type:'application/json'});
-      filename = `ema_${sessionData.participantID}_${sessionData.session}.json`;
+    const totalBeats = sessionData.data.reduce((sum, entry) => {
+      if (entry.type === "baseline") return sum + (entry.recordedHR ? entry.recordedHR.length : 0);
+      if (entry.type === "trial") return sum + (entry.qualitySummary ? entry.qualitySummary.totalBeats : 0);
+      return sum;
+    }, 0);
+    
+    if (totalBeats > 0) {
+      document.getElementById("end-beat-count").textContent = `${totalBeats.toLocaleString()} beats contributed to science.`;
+      document.getElementById("end-beat-count").style.display = "block";
     }
 
-    // Trigger Download
-    const url = URL.createObjectURL(blob); 
-    const a = document.createElement('a'); 
-    a.href = url; a.download = filename; a.click(); 
-    URL.revokeObjectURL(url);
-    
+    document.getElementById("download-btn").onclick = () => Upload.send(sessionData);
     show('screen-end');
-  }
-
-  // ==========================================================
-  // PAT SENSOR LOGIC (Stubbed to call finalizeSession when done)
-  // ==========================================================
-  async function startPATSession() {
-    const core = window.ePATCore;
-    if (!core) { finalizeSession(); return; }
-    
-    sessionData.patData = { completed: false, trials: [] };
-
-    // Initialize UI and Core
-    core.AudioEngine.init();
-    await core.WakeLockCtrl.request();
-    
-    /* ... (The visual dial initialization remains the same as previously defined) ... */
-    
-    // For Prototype testing: fast forward PAT to end
-    setTimeout(() => {
-        sessionData.patData.completed = true;
-        finalizeSession();
-    }, 1500); 
   }
 
 })();

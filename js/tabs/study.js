@@ -15,9 +15,15 @@ function bindStudyTab() {
   };
   bind('study-name', v => state.study.name = v);
   bind('institution', v => state.study.institution = v);
-  bind('greeting-morning', v => state.study.greetings.morning = v);
-  bind('greeting-afternoon', v => state.study.greetings.afternoon = v);
-  bind('greeting-evening', v => state.study.greetings.evening = v);
+
+  const themeEl = document.getElementById('study-theme');
+  if (themeEl) {
+    themeEl.value = state.study.theme;
+    themeEl.addEventListener('change', e => {
+      state.study.theme = e.target.value;
+      schedulePreview();
+    });
+  }
 
   document.getElementById('accent-color').addEventListener('input', e => {
     state.study.accent_color = e.target.value;
@@ -34,5 +40,37 @@ function bindStudyTab() {
     document.getElementById('format-hint').textContent = btn.dataset.fmt === 'json'
       ? 'Each submission downloads a .json file. One file per session per participant.'
       : 'Each submission downloads a .csv with one row per question. Easy to concatenate across participants.';
+  });
+}
+
+// Dynamically generate greeting inputs based on schedule windows
+function renderGreetings() {
+  const list = document.getElementById('dynamic-greetings-list');
+  if (!list) return;
+  list.innerHTML = '';
+  
+  if (!state.study.greetings) state.study.greetings = {};
+
+  state.ema.scheduling.windows.forEach(w => {
+    // Ensure state exists for this window
+    if (!state.study.greetings[w.id]) {
+      state.study.greetings[w.id] = "Check-In";
+    }
+
+    const row = document.createElement('div');
+    row.className = 'field-group';
+    row.style.marginBottom = '16px';
+    
+    row.innerHTML = `
+      <label class="field-label">${escH(w.label)} Greeting</label>
+      <input type="text" class="greeting-input" data-wid="${w.id}" value="${escH(state.study.greetings[w.id])}">
+    `;
+    
+    row.querySelector('.greeting-input').addEventListener('input', (e) => {
+      state.study.greetings[w.id] = e.target.value;
+      schedulePreview();
+    });
+
+    list.appendChild(row);
   });
 }

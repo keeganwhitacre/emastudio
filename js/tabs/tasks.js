@@ -15,6 +15,7 @@ function bindTasksTab() {
   bindNum('pat-retries',   v => state.pat.retry_budget = v);
   bindNum('pat-sqi',       v => state.pat.sqi_threshold = v);
 
-  document.getElementById('pat-conf').addEventListener('change', e => state.pat.confidence_ratings = e.target.checked);
-  document.getElementById('pat-practice').addEventListener('change', e => state.pat.two_phase_practice = e.target.checked);
+  document.getElementById('pat-bodymap').addEventListener('change', e => { state.pat.body_map = e.target.checked; schedulePreview(); });
+  document.getElementById('pat-conf').addEventListener('change', e => { state.pat.confidence_ratings = e.target.checked; schedulePreview(); });
+  document.getElementById('pat-practice').addEventListener('change', e => { state.pat.two_phase_practice = e.target.checked; schedulePreview(); });
 }

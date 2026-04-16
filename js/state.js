@@ -1,26 +1,28 @@
 "use strict";
 
-const SCHEMA_VERSION = "1.0.0";
+const SCHEMA_VERSION = "1.1.0";
 
 let state = {
   study: {
     name: "Interoception Study",
     institution: "",
+    theme: "oled", // "oled", "dark", or "light"
     accent_color: "#e8716a",
     output_format: "json",
-    greetings: { morning: "Good Morning", afternoon: "Check-In", evening: "Good Evening" }
+    // Greetings will map dynamically to window IDs
+    greetings: { w1: "Good Morning", w2: "Check-In", w3: "Good Evening" }
   },
   tasks: ["ema"],
+  onboarding: {
+    enabled: true,
+    ask_schedule: true, // Toggle for scheduling
+    consent_text: "<h3>1. Purpose</h3>\n<p>This research investigates individual differences in how people perceive internal body signals such as heartbeats, and how this relates to mood and daily experience.</p>\n<h3>2. What You Will Do</h3>\n<p>You will complete brief daily check-ins for the duration of the study. You will also complete a task where you adjust an auditory tone to match your heartbeat using a dial.</p>\n<h3>3. Confidentiality</h3>\n<p>All data are stored under a participant ID number with no identifying information.</p>\n<h3>4. Contact</h3>\n<p>For questions about this study, contact the research team.</p>"
+  },
   ema: {
-    sessions: [
-      { id: "morning",   label: "Morning Check-In",   greeting_key: "morning" },
-      { id: "afternoon", label: "Afternoon Check-In",  greeting_key: "afternoon" },
-      { id: "evening",   label: "Evening Check-In",    greeting_key: "evening" }
-    ],
     questions: [
-      { id: "q1", type: "slider", text: "How would you rate your current mood?", min: 0, max: 100, step: 1, unit: null, anchors: ["Very Negative", "Very Positive"], required: true, condition: null },
-      { id: "q2", type: "slider", text: "How physically rested do you feel?", min: 0, max: 100, step: 1, unit: null, anchors: ["Exhausted", "Fully Energized"], required: true, condition: null },
-      { id: "q3", type: "choice", text: "What are you currently doing?", options: ["Working", "Exercising", "Relaxing", "Socializing", "Other"], required: true, condition: null }
+      { id: "q1", type: "slider", text: "Right now, my mood is…", min: 0, max: 100, step: 1, unit: null, anchors: ["Unpleasant", "Pleasant"], required: true, condition: null },
+      { id: "q2", type: "slider", text: "Right now, my energy level is…", min: 0, max: 100, step: 1, unit: null, anchors: ["Low / Calm", "High / Activated"], required: true, condition: null },
+      { id: "q3", type: "choice", text: "What are you doing right now?", options: ["Resting", "Working / Studying", "Socializing", "Exercising", "Eating", "Commuting", "Other"], required: true, condition: null }
     ],
     scheduling: {
       study_days: 14,
@@ -35,17 +37,18 @@ let state = {
     }
   },
   pat: {
-    enabled: false,
+    enabled: false, // Disabled by default as requested
     trials: 20,
     trial_duration_sec: 30,
     retry_budget: 30,
     sqi_threshold: 0.3,
     confidence_ratings: true,
-    two_phase_practice: true
+    two_phase_practice: true,
+    body_map: true
   }
 };
 
-let previewSession = "morning";
+let previewSession = "onboarding"; // Default preview to onboarding so users see it immediately
 let previewDebounceTimer = null;
 let qIdCounter = 10;
 let wIdCounter = 10;
@@ -72,6 +75,7 @@ function buildConfig() {
     schema_version: SCHEMA_VERSION,
     study: JSON.parse(JSON.stringify(state.study)),
     tasks: [...state.tasks],
+    onboarding: JSON.parse(JSON.stringify(state.onboarding)),
     ema: JSON.parse(JSON.stringify(state.ema))
   };
   if (state.pat.enabled) {

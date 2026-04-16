@@ -23,6 +23,7 @@
     <div class="topbar-sep"></div>
     <nav class="topbar-tabs">
       <button class="tab-btn active" data-tab="study">Study</button>
+      <button class="tab-btn" data-tab="onboarding">Onboarding</button>
       <button class="tab-btn" data-tab="questions">Questions</button>
       <button class="tab-btn" data-tab="schedule">Schedule</button>
       <button class="tab-btn" data-tab="tasks">Tasks</button>
@@ -61,27 +62,30 @@
 
       <div class="divider"></div>
       <div class="section-title">Visual Theme</div>
-      <div class="field-group">
-        <label class="field-label">Accent Color</label>
-        <div class="color-row">
-          <div class="color-preview" id="color-preview-swatch"></div>
-          <input type="color" id="accent-color" value="#e8716a" style="flex:1">
-        </div>
-        <div class="field-hint">Applied to buttons, sliders, and interactive elements in the generated study.</div>
-      </div>
       <div class="field-row">
         <div class="field-group">
-          <label class="field-label">Morning Greeting</label>
-          <input type="text" id="greeting-morning" value="Good Morning">
+          <label class="field-label">Color Scheme</label>
+          <select id="study-theme">
+            <option value="oled">OLED (True Black)</option>
+            <option value="dark">Standard Dark</option>
+            <option value="light">Light Mode</option>
+          </select>
         </div>
         <div class="field-group">
-          <label class="field-label">Afternoon Greeting</label>
-          <input type="text" id="greeting-afternoon" value="Check-In">
+          <label class="field-label">Accent Color</label>
+          <div class="color-row">
+            <div class="color-preview" id="color-preview-swatch"></div>
+            <input type="color" id="accent-color" value="#e8716a" style="flex:1">
+          </div>
         </div>
       </div>
-      <div class="field-group">
-        <label class="field-label">Evening Greeting</label>
-        <input type="text" id="greeting-evening" value="Good Evening">
+      <div class="field-hint" style="margin-bottom:8px">Applied to buttons, sliders, and interactive elements in the generated study.</div>
+
+      <div class="divider"></div>
+      <div class="section-title">Session Greetings</div>
+      <div class="field-hint" style="margin-bottom:12px">Customize the large header text displayed when a participant opens a session. Add more sessions in the Schedule tab.</div>
+      <div id="dynamic-greetings-list">
+        <!-- Injected dynamically by study.js based on schedule windows -->
       </div>
 
       <div class="divider"></div>
@@ -93,6 +97,35 @@
           <button class="seg-btn" data-fmt="csv">CSV</button>
         </div>
         <div class="field-hint" id="format-hint">Each submission downloads a .json file. One file per session per participant.</div>
+      </div>
+    </div>
+
+    <!-- ONBOARDING TAB -->
+    <div class="config-section" id="tab-onboarding">
+      <div class="section-title">Onboarding Flow</div>
+      <div class="field-hint">Setup the initial introduction and consent experience for participants. Route them here via <code>?session=onboarding</code>.</div>
+      
+      <div class="toggle-row" style="margin-top:12px;">
+        <span class="toggle-label">Enable Onboarding Module</span>
+        <label class="toggle">
+          <input type="checkbox" id="ob-toggle" checked>
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+
+      <div id="ob-settings">
+        <div class="toggle-row">
+          <span class="toggle-label">Ask participant to input their daily schedule availability</span>
+          <label class="toggle">
+            <input type="checkbox" id="ob-schedule-toggle" checked>
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="field-group" style="margin-top: 16px;">
+          <label class="field-label">Consent Text (HTML allowed)</label>
+          <textarea id="ob-consent-text" style="height: 250px; font-family: var(--font-mono); font-size: 11px;"></textarea>
+          <div class="field-hint">Use &lt;h3&gt; for headers and &lt;p&gt; for paragraphs to maintain styling.</div>
+        </div>
       </div>
     </div>
 
@@ -216,6 +249,13 @@
             </div>
           </div>
           <div class="toggle-row">
+            <span class="toggle-label">Include Body Map Sensation Tracker</span>
+            <label class="toggle">
+              <input type="checkbox" id="pat-bodymap" checked>
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
             <span class="toggle-label">Per-trial confidence ratings</span>
             <label class="toggle">
               <input type="checkbox" id="pat-conf" checked>
@@ -240,11 +280,8 @@
     <div id="preview-header">
       <span class="preview-label">Live Preview</span>
       <div style="display:flex;gap:8px;align-items:center">
-        <div class="preview-session-tabs" id="preview-session-tabs">
-          <button class="preview-session-tab active" data-session="morning">Morning</button>
-          <button class="preview-session-tab" data-session="afternoon">Afternoon</button>
-          <button class="preview-session-tab" data-session="evening">Evening</button>
-        </div>
+        <!-- Injected dynamically by js/preview.js -->
+        <div class="preview-session-tabs" id="preview-session-tabs"></div>
         <button class="preview-reset-btn" id="preview-reset-btn" title="Restart preview">↺ Reset</button>
       </div>
     </div>
@@ -292,6 +329,7 @@
 <script src="js/storage.js"></script>
 <script src="js/drag-fix.js"></script>
 <script src="js/tabs/study.js"></script>
+<script src="js/tabs/onboarding.js"></script>
 <script src="js/tabs/questions.js"></script>
 <script src="js/tabs/schedule.js"></script>
 <script src="js/tabs/tasks.js"></script>
@@ -302,10 +340,16 @@
 <!-- Initialize everything -->
 <script>
   bindStudyTab();
+  bindOnboardingTab();
   bindScheduleTab();
   bindTasksTab();
+  
+  // These render functions now trigger UI cascades (e.g. Schedule -> Greetings)
   renderWindows();
   renderQuestions();
+  
+  // Build tabs and initial iframe
+  renderPreviewTabs();
   renderPreview();
 </script>
 </body>
