@@ -27,6 +27,7 @@
       <button class="tab-btn" data-tab="questions">Questions</button>
       <button class="tab-btn" data-tab="schedule">Schedule</button>
       <button class="tab-btn" data-tab="tasks">Tasks</button>
+      <button class="tab-btn" data-tab="deployment">Deployment</button>
     </nav>
     <div class="topbar-actions">
       <span class="schema-version" id="save-status">Up to date</span>
@@ -273,6 +274,35 @@
       </div>
     </div>
 
+    <!-- DEPLOYMENT TAB -->
+    <div class="config-section" id="tab-deployment">
+      <div class="section-title">Deployment & Routing</div>
+      <div class="field-hint" style="margin-bottom: 12px;">Generate a complete schedule of participant links (CSV) pre-filled with ID, Day, and Session parameters.</div>
+      
+      <div class="field-group" style="margin-bottom: 16px;">
+        <label class="field-label">Hosted URL</label>
+        <input type="text" id="deploy-base-url" placeholder="https://my-lab.github.io/study/index.html" value="https://example.com/study/">
+        <div class="field-hint" style="margin-top: 4px;">The web address where your exported HTML file will be hosted.</div>
+      </div>
+      
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">Start Participant ID</label>
+          <input type="number" id="deploy-start-id" value="1" min="1">
+        </div>
+        <div class="field-group">
+          <label class="field-label">End Participant ID</label>
+          <input type="number" id="deploy-end-id" value="20" min="1">
+        </div>
+      </div>
+      
+      <div style="margin-top: 24px;">
+        <button id="generate-csv-btn" class="btn btn-primary" style="width: 100%; padding: 10px;">
+          <svg viewBox="0 0 16 16" fill="currentColor" style="width: 16px; height: 16px; margin-right: 6px;"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75zM7.25 7.689L5.03 5.469a.75.75 0 00-1.06 1.06l3.25 3.25a.75.75 0 001.06 0l3.25-3.25a.75.75 0 00-1.06-1.06L8.75 7.689V2a.75.75 0 00-1.5 0v5.689z"/></svg>
+          Generate Routing CSV
+        </button>
+      </div>
+    </div>
   </section>
 
   <!-- ========== PREVIEW PANEL ========== -->
@@ -333,6 +363,7 @@
 <script src="js/tabs/questions.js"></script>
 <script src="js/tabs/schedule.js"></script>
 <script src="js/tabs/tasks.js"></script>
+<script src="js/tabs/deployment.js"></script>
 <script src="js/preview.js"></script>
 <script src="js/modals.js"></script>
 <script src="js/export.js"></script>
@@ -343,6 +374,7 @@
   bindOnboardingTab();
   bindScheduleTab();
   bindTasksTab();
+  bindDeploymentTab();
   
   // These render functions now trigger UI cascades (e.g. Schedule -> Greetings)
   renderWindows();
