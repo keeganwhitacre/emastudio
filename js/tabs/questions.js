@@ -9,12 +9,34 @@ function buildQCard(q, index) {
   card.className = 'q-card';
   card.dataset.qid = q.id;
 
+  // Handle Page Break UI entirely differently
+  if (q.type === 'page_break') {
+    card.classList.add('page-break');
+    card.innerHTML = `
+      <div class="q-header">
+        <span class="q-drag-handle" style="position:absolute;left:12px;cursor:grab;">⠿</span>
+        <span style="font-size:11px;font-weight:700;letter-spacing:0.1em;color:var(--accent);">--- PAGE BREAK ---</span>
+        <button class="q-del-btn" style="position:absolute;right:12px;">✕</button>
+      </div>
+    `;
+    card.querySelector('.q-del-btn').addEventListener('click', () => {
+      state.ema.questions = state.ema.questions.filter(x => x.id !== q.id);
+      renderQuestions(); schedulePreview();
+    });
+    return card;
+  }
+
+  // Handle standard questions
+  let typeLabel = q.type.charAt(0).toUpperCase() + q.type.slice(1);
+  if (q.type === 'choice') typeLabel = 'Single Choice';
+  if (q.type === 'checkbox') typeLabel = 'Multi Select';
+
   card.innerHTML = `
     <div class="q-header">
       <span class="q-drag-handle">⠿</span>
       <span class="q-num">${index + 1}</span>
       <span class="q-preview-text">${escH(q.text) || '<em style="color:var(--fg-3)">(no text)</em>'}</span>
-      <span class="q-type-badge ${q.type}">${q.type === 'slider' ? 'Slider' : 'Choice'}</span>
+      <span class="q-type-badge ${q.type}">${typeLabel}</span>
       <svg class="q-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l4 4 4-4"/></svg>
     </div>
     <div class="q-body">
@@ -22,8 +44,10 @@ function buildQCard(q, index) {
         <label class="field-label">Question Text</label>
         <input type="text" class="q-text" value="${escH(q.text)}" placeholder="Enter question…">
       </div>
-      ${q.type === 'slider' ? buildSliderFields(q) : buildChoiceFields(q)}
-      <div class="field-group">
+      ${q.type === 'slider' ? buildSliderFields(q) : ''}
+      ${(q.type === 'choice' || q.type === 'checkbox') ? buildChoiceFields(q) : ''}
+      ${(q.type === 'text' || q.type === 'numeric') ? `<div class="field-hint" style="margin-top:6px">Participants will be given a ${q.type === 'numeric' ? 'number pad' : 'text box'} to answer this question.</div>` : ''}
+      <div class="field-group" style="margin-top: 10px;">
         <label class="field-label">Skip Logic</label>
         ${buildConditionBlock(q, index)}
       </div>
@@ -47,14 +71,14 @@ function buildQCard(q, index) {
     card.querySelector('.q-preview-text').innerHTML = escH(q.text) || '<em style="color:var(--fg-3)">(no text)</em>';
     schedulePreview();
   });
-  card.querySelector('.q-required').addEventListener('change', e => { q.required = e.target.checked; });
+  card.querySelector('.q-required').addEventListener('change', e => { q.required = e.target.checked; schedulePreview(); });
   card.querySelector('.q-del-btn').addEventListener('click', () => {
     state.ema.questions = state.ema.questions.filter(x => x.id !== q.id);
     renderQuestions(); schedulePreview();
   });
 
   if (q.type === 'slider') bindSliderFields(card, q);
-  else bindChoiceFields(card, q);
+  if (q.type === 'choice' || q.type === 'checkbox') bindChoiceFields(card, q);
   bindConditionFields(card, q, index);
 
   return card;
@@ -74,12 +98,13 @@ function buildSliderFields(q) {
     <div class="field-group"><label class="field-label">Unit Suffix (optional)</label><input type="text" class="q-unit" value="${escH(q.unit||'')}" placeholder="e.g. hrs"></div>
   `;
 }
+
 function bindSliderFields(card, q) {
   const n = (sel, key) => { const el = card.querySelector(sel); if(el) el.addEventListener('input', () => { q[key] = parseFloat(el.value)||0; schedulePreview(); }); };
   n('.q-min','min'); n('.q-max','max'); n('.q-step','step');
   card.querySelector('.q-anchor-l').addEventListener('input', e => { q.anchors[0] = e.target.value; schedulePreview(); });
   card.querySelector('.q-anchor-r').addEventListener('input', e => { q.anchors[1] = e.target.value; schedulePreview(); });
-  card.querySelector('.q-unit').addEventListener('input', e => { q.unit = e.target.value || null; });
+  card.querySelector('.q-unit').addEventListener('input', e => { q.unit = e.target.value || null; schedulePreview(); });
 }
 
 function buildChoiceFields(q) {
@@ -89,13 +114,14 @@ function buildChoiceFields(q) {
       <button class="option-del">×</button>
     </div>`).join('');
   return `
-    <div class="field-group">
+    <div class="field-group" style="margin-top: 10px;">
       <label class="field-label">Options</label>
       <div class="options-list">${opts}</div>
       <button class="btn add-opt-btn" style="margin-top:6px;font-size:11px">+ Add option</button>
     </div>
   `;
 }
+
 function bindChoiceFields(card, q) {
   const list = card.querySelector('.options-list');
   if (!list) return;
@@ -113,8 +139,8 @@ function bindChoiceFields(card, q) {
 }
 
 function buildConditionBlock(q, index) {
-  if (index === 0) return `<div style="font-size:11px;color:var(--fg-3);padding:4px 0">First question — cannot have a condition.</div>`;
-  const priors = state.ema.questions.slice(0, index);
+  const priors = state.ema.questions.slice(0, index).filter(p => p.type !== 'page_break');
+  if (priors.length === 0) return `<div style="font-size:11px;color:var(--fg-3);padding:4px 0">No prior questions available for logic.</div>`;
   const has = !!q.condition;
   const src = q.condition ? q.condition.question_id : (priors[0]?.id || '');
   const qOpts = priors.map(p => `<option value="${p.id}" ${p.id===src?'selected':''}>${escH(p.text.slice(0,35)||p.id)}</option>`).join('');
@@ -135,13 +161,14 @@ function buildConditionBlock(q, index) {
     </div>
   `;
 }
+
 function bindConditionFields(card, q, index) {
   const enableChk = card.querySelector('.cond-enable');
   const block = card.querySelector('.q-condition-block');
   if (!enableChk) return;
   enableChk.addEventListener('change', () => {
     if (enableChk.checked) {
-      const priors = state.ema.questions.slice(0, index);
+      const priors = state.ema.questions.slice(0, index).filter(p => p.type !== 'page_break');
       q.condition = { question_id: priors[0]?.id||'', operator: 'gte', value: 50 };
       block.style.display = 'flex';
     } else { q.condition = null; block.style.display = 'none'; }
@@ -150,24 +177,29 @@ function bindConditionFields(card, q, index) {
   const qidSel = card.querySelector('.cond-qid');
   const opSel  = card.querySelector('.cond-op');
   const valInp = card.querySelector('.cond-val');
-  if (qidSel) qidSel.addEventListener('change', () => { if (q.condition) q.condition.question_id = qidSel.value; });
-  if (opSel)  opSel.addEventListener('change',  () => { if (q.condition) q.condition.operator = opSel.value; });
+  if (qidSel) qidSel.addEventListener('change', () => { if (q.condition) q.condition.question_id = qidSel.value; schedulePreview(); });
+  if (opSel)  opSel.addEventListener('change',  () => { if (q.condition) q.condition.operator = opSel.value; schedulePreview(); });
   if (valInp) valInp.addEventListener('input',  () => {
     if (!q.condition) return;
     const v = valInp.value;
     if (v.includes(',')) q.condition.value = v.split(',').map(x => x.trim());
     else if (v !== '' && !isNaN(Number(v))) q.condition.value = Number(v);
     else q.condition.value = v;
+    schedulePreview();
   });
 }
 
-document.getElementById('add-slider-btn').addEventListener('click', () => {
-  state.ema.questions.push({ id: genQId(), type: 'slider', text: '', min: 0, max: 100, step: 1, unit: null, anchors: ['',''], required: true, condition: null });
+// Button Bindings
+function addQ(obj) {
+  state.ema.questions.push(obj);
   renderQuestions(); schedulePreview();
-  const cards = document.querySelectorAll('.q-card'); if (cards.length) cards[cards.length-1].classList.add('expanded');
-});
-document.getElementById('add-choice-btn').addEventListener('click', () => {
-  state.ema.questions.push({ id: genQId(), type: 'choice', text: '', options: ['',''], required: true, condition: null });
-  renderQuestions(); schedulePreview();
-  const cards = document.querySelectorAll('.q-card'); if (cards.length) cards[cards.length-1].classList.add('expanded');
-});
+  const cards = document.querySelectorAll('.q-card'); 
+  if (cards.length && obj.type !== 'page_break') cards[cards.length-1].classList.add('expanded');
+}
+
+document.getElementById('add-slider-btn').addEventListener('click', () => addQ({ id: genQId(), type: 'slider', text: '', min: 0, max: 100, step: 1, unit: null, anchors: ['',''], required: true, condition: null }));
+document.getElementById('add-choice-btn').addEventListener('click', () => addQ({ id: genQId(), type: 'choice', text: '', options: ['',''], required: true, condition: null }));
+document.getElementById('add-check-btn').addEventListener('click', () => addQ({ id: genQId(), type: 'checkbox', text: '', options: ['',''], required: true, condition: null }));
+document.getElementById('add-text-btn').addEventListener('click', () => addQ({ id: genQId(), type: 'text', text: '', required: true, condition: null }));
+document.getElementById('add-num-btn').addEventListener('click', () => addQ({ id: genQId(), type: 'numeric', text: '', required: true, condition: null }));
+document.getElementById('add-page-btn').addEventListener('click', () => addQ({ id: genQId(), type: 'page_break' }));

@@ -13,7 +13,7 @@
   <header id="topbar">
     <div class="topbar-brand">
       <div class="topbar-logo">
-        <svg viewBox="0 0 13 13" fill="none" xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)">
+        <svg viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="6.5" cy="6.5" r="2.5" fill="white"/>
           <path d="M6.5 1v1.5M6.5 10.5V12M12 6.5h-1.5M2.5 6.5H1M10.3 2.7l-1 1M3.7 9.3l-1 1M10.3 10.3l-1-1M3.7 3.7l-1-1" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
@@ -100,18 +100,17 @@
     <div class="config-section" id="tab-questions">
       <div>
         <div class="section-title">EMA Questions</div>
-        <div class="field-hint" style="margin-top:4px">All questions appear in every session unless a skip condition is set.</div>
+        <div class="field-hint" style="margin-top:4px">Insert Page Breaks to group questions onto separate screens.</div>
       </div>
       <div class="question-list" id="question-list"></div>
       <div class="add-row">
-        <button class="btn" id="add-slider-btn">
-          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
-          + Slider
-        </button>
-        <button class="btn" id="add-choice-btn">
-          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
-          + Choice
-        </button>
+        <button class="btn" id="add-slider-btn">+ Slider</button>
+        <button class="btn" id="add-choice-btn">+ Single Choice</button>
+        <button class="btn" id="add-check-btn">+ Checkbox (Multi)</button>
+        <button class="btn" id="add-text-btn">+ Text</button>
+        <button class="btn" id="add-num-btn">+ Number</button>
+        <div style="width: 1px; background: var(--border); margin: 0 4px;"></div>
+        <button class="btn" id="add-page-btn" style="color: var(--accent); border-color: rgba(232,113,106,0.3);">+ Page Break</button>
       </div>
     </div>
 
@@ -299,6 +298,7 @@
 <script src="js/preview.js"></script>
 <script src="js/modals.js"></script>
 <script src="js/export.js"></script>
+
 <!-- Initialize everything -->
 <script>
   bindStudyTab();
