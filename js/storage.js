@@ -7,44 +7,38 @@ const StorageManager = {
     STORAGE_KEY: 'ema_studio_project_state',
 
     init() {
-        this.injectUI();
+        this.bindUI();
         this.loadLocalState();
         
-        // Auto-save every 5 seconds if changes occurred, or hook this directly into your updatePreview() function
-        setInterval(() => this.saveLocalState(), 5000);
+        // Auto-save every 2 seconds by checking if the state object changed
+        setInterval(() => this.saveLocalState(), 2000);
     },
 
-    injectUI() {
-        // Create the control container
-        const controls = document.createElement('div');
-        controls.className = 'project-controls';
-        controls.style.cssText = 'display: flex; gap: 10px; padding: 10px; background: #f8f9fa; border-bottom: 1px solid #ddd; justify-content: flex-end; align-items: center;';
+    bindUI() {
+        const btnSave = document.getElementById('btn-save-project');
+        const btnImport = document.getElementById('btn-import');
+        const fileInput = document.getElementById('import-file');
+        const btnReset = document.getElementById('btn-reset');
 
-        controls.innerHTML = `
-            <span style="margin-right: auto; font-size: 14px; color: #666;" id="save-status">Status: Up to date</span>
-            <input type="file" id="import-file" accept=".json" style="display: none;">
-            <button id="btn-import" style="padding: 5px 10px; cursor: pointer;">📂 Import Project</button>
-            <button id="btn-export" style="padding: 5px 10px; cursor: pointer;">💾 Export Project</button>
-            <button id="btn-reset" style="padding: 5px 10px; cursor: pointer; background: #dc3545; color: white; border: none; border-radius: 4px;">⚠️ Reset</button>
-        `;
-
-        // Prepend to body or a specific header if you have one
-        document.body.insertBefore(controls, document.body.firstChild);
-
-        // Event Listeners
-        document.getElementById('btn-export').addEventListener('click', () => this.exportProject());
-        document.getElementById('btn-import').addEventListener('click', () => document.getElementById('import-file').click());
-        document.getElementById('import-file').addEventListener('change', (e) => this.importProject(e));
-        document.getElementById('btn-reset').addEventListener('click', () => this.resetProject());
+        if (btnSave) btnSave.addEventListener('click', () => this.exportProject());
+        if (btnImport) btnImport.addEventListener('click', () => fileInput.click());
+        if (fileInput) fileInput.addEventListener('change', (e) => this.importProject(e));
+        if (btnReset) btnReset.addEventListener('click', () => this.resetProject());
     },
 
     saveLocalState() {
-        if (!window.state) return;
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(window.state));
+        if (typeof state === 'undefined') return;
         
-        const status = document.getElementById('save-status');
-        if (status) {
-            status.textContent = `Status: Auto-saved at ${new Date().toLocaleTimeString()}`;
+        const currentStateStr = JSON.stringify(state);
+        const savedStateStr = localStorage.getItem(this.STORAGE_KEY);
+        
+        if (currentStateStr !== savedStateStr) {
+            localStorage.setItem(this.STORAGE_KEY, currentStateStr);
+            const status = document.getElementById('save-status');
+            if (status) {
+                const d = new Date();
+                status.textContent = `Auto-saved ${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
+            }
         }
     },
 
@@ -53,13 +47,12 @@ const StorageManager = {
         if (saved) {
             try {
                 const parsedState = JSON.parse(saved);
-                // Confirm with user if they want to load the saved state
-                if (confirm("We found an unsaved session from a previous visit. Would you like to restore it?")) {
-                    window.state = parsedState;
-                    this.triggerUIRefresh();
-                } else {
-                    this.saveLocalState(); // Overwrite with current default state
-                }
+                // Silently restore state on load
+                state = parsedState;
+                this.triggerUIRefresh();
+                
+                const status = document.getElementById('save-status');
+                if (status) status.textContent = "Restored previous session";
             } catch (e) {
                 console.error("Failed to parse saved state", e);
             }
@@ -67,8 +60,8 @@ const StorageManager = {
     },
 
     exportProject() {
-        if (!window.state) return;
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(window.state, null, 2));
+        if (typeof state === 'undefined') return;
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
         const downloadAnchorNode = document.createElement('a');
         downloadAnchorNode.setAttribute("href", dataStr);
         downloadAnchorNode.setAttribute("download", "ema_project_backup.json");
@@ -85,39 +78,75 @@ const StorageManager = {
         reader.onload = (e) => {
             try {
                 const importedState = JSON.parse(e.target.result);
-                window.state = importedState;
+                state = importedState;
                 this.saveLocalState();
                 this.triggerUIRefresh();
-                alert("Project imported successfully!");
+                
+                const status = document.getElementById('save-status');
+                if (status) status.textContent = "Project imported";
             } catch (error) {
                 alert("Error parsing JSON file. Please ensure it is a valid EMA Studio backup.");
             }
         };
         reader.readAsText(file);
-        // Reset input
-        event.target.value = '';
+        event.target.value = ''; // Reset input
     },
 
     resetProject() {
         if (confirm("Are you sure you want to completely restart? All unsaved progress will be lost.")) {
             localStorage.removeItem(this.STORAGE_KEY);
-            location.reload(); // Reloading the page will reset window.state to defaults
+            location.reload(); // Reloading the page will pull defaults from state.js
         }
     },
 
     triggerUIRefresh() {
-        // This simulates a full refresh of the builder UI.
-        // It looks for standard functions you might have in your tabs.
-        if (typeof renderQuestions === 'function') renderQuestions();
-        if (typeof updatePreview === 'function') updatePreview();
+        // Force all tabs to sync with the newly loaded 'state' variable
         
-        // If you have functions that populate inputs based on state, call them here
-        // e.g., loadStateIntoStudyTab(), loadStateIntoScheduleTab()
-        alert("State loaded! (You may need to click through the tabs to see visual updates depending on your render logic).");
+        // 1. Study Tab
+        if (document.getElementById('study-name')) document.getElementById('study-name').value = state.study.name;
+        if (document.getElementById('institution')) document.getElementById('institution').value = state.study.institution;
+        if (document.getElementById('greeting-morning')) document.getElementById('greeting-morning').value = state.study.greetings.morning;
+        if (document.getElementById('greeting-afternoon')) document.getElementById('greeting-afternoon').value = state.study.greetings.afternoon;
+        if (document.getElementById('greeting-evening')) document.getElementById('greeting-evening').value = state.study.greetings.evening;
+        if (document.getElementById('accent-color')) {
+            document.getElementById('accent-color').value = state.study.accent_color;
+            document.getElementById('color-preview-swatch').style.background = state.study.accent_color;
+        }
+        document.querySelectorAll('#format-ctrl .seg-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.fmt === state.study.output_format);
+        });
+
+        // 2. Schedule Tab
+        if (document.getElementById('study-days')) document.getElementById('study-days').value = state.ema.scheduling.study_days;
+        if (document.getElementById('daily-prompts')) document.getElementById('daily-prompts').value = state.ema.scheduling.daily_prompts;
+        if (document.getElementById('window-expiry')) document.getElementById('window-expiry').value = state.ema.scheduling.timing.expiry_minutes;
+        if (document.getElementById('grace-period')) document.getElementById('grace-period').value = state.ema.scheduling.timing.grace_minutes;
+        
+        document.querySelectorAll('.dow-chip').forEach(chip => {
+            const dow = parseInt(chip.dataset.dow);
+            chip.classList.toggle('on', state.ema.scheduling.days_of_week.includes(dow));
+        });
+        if (typeof renderWindows === 'function') renderWindows();
+
+        // 3. Tasks Tab
+        if (document.getElementById('pat-toggle')) {
+            document.getElementById('pat-toggle').checked = state.pat.enabled;
+            document.getElementById('pat-card').classList.toggle('enabled', state.pat.enabled);
+            document.getElementById('pat-settings').classList.toggle('hidden', !state.pat.enabled);
+        }
+        if (document.getElementById('pat-trials')) document.getElementById('pat-trials').value = state.pat.trials;
+        if (document.getElementById('pat-trial-dur')) document.getElementById('pat-trial-dur').value = state.pat.trial_duration_sec;
+        if (document.getElementById('pat-retries')) document.getElementById('pat-retries').value = state.pat.retry_budget;
+        if (document.getElementById('pat-sqi')) document.getElementById('pat-sqi').value = state.pat.sqi_threshold;
+        if (document.getElementById('pat-conf')) document.getElementById('pat-conf').checked = state.pat.confidence_ratings;
+        if (document.getElementById('pat-practice')) document.getElementById('pat-practice').checked = state.pat.two_phase_practice;
+
+        // 4. Questions Tab & Preview
+        if (typeof renderQuestions === 'function') renderQuestions();
+        if (typeof schedulePreview === 'function') schedulePreview();
     }
 };
 
-// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     StorageManager.init();
 });
