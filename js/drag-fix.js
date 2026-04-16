@@ -1,40 +1,38 @@
 /**
  * Attaches robust drag-and-drop functionality to the questions list.
- * Make sure your question containers have the class 'question-item' and an attribute 'data-index'.
  */
 
 function initializeDragAndDrop() {
-    const list = document.getElementById('questions-list'); // Ensure this matches your HTML ID
+    const list = document.getElementById('question-list'); 
     if (!list) return;
 
     let draggedItem = null;
 
-    // 1. Make items draggable
-    const items = list.querySelectorAll('.question-item');
+    // 1. Target the correct q-card elements
+    const items = list.querySelectorAll('.q-card');
     items.forEach(item => {
         item.setAttribute('draggable', 'true');
-        item.style.cursor = 'grab';
+        const handle = item.querySelector('.q-drag-handle');
+        if (handle) handle.style.cursor = 'grab';
     });
 
     // 2. Handle Drag Start
     list.addEventListener('dragstart', (e) => {
-        const target = e.target.closest('.question-item');
+        const target = e.target.closest('.q-card');
         if (target) {
             draggedItem = target;
             e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', target.dataset.index);
             setTimeout(() => target.style.opacity = '0.5', 0);
         }
     });
 
-    // 3. Handle Drag Over (allows dropping)
+    // 3. Handle Drag Over
     list.addEventListener('dragover', (e) => {
-        e.preventDefault(); // Necessary to allow dropping
+        e.preventDefault(); 
         e.dataTransfer.dropEffect = 'move';
         
-        const target = e.target.closest('.question-item');
+        const target = e.target.closest('.q-card');
         if (target && target !== draggedItem) {
-            // Determine if we should place the dragged item before or after the target
             const rect = target.getBoundingClientRect();
             const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
             list.insertBefore(draggedItem, next ? target.nextSibling : target);
@@ -50,51 +48,51 @@ function initializeDragAndDrop() {
         }
     });
 
-    // 5. Cleanup on drag end
+    // 5. Cleanup
     list.addEventListener('dragend', (e) => {
-        const target = e.target.closest('.question-item');
+        const target = e.target.closest('.q-card');
         if (target) {
             target.style.opacity = '1';
         }
         draggedItem = null;
     });
 
-    // Helper: Rebuilds window.state.questions based on new DOM order
+    // Rebuilds state.ema.questions based on new DOM order
     function updateStateFromDOMOrder() {
-        const currentItems = list.querySelectorAll('.question-item');
+        const currentItems = list.querySelectorAll('.q-card');
         const reorderedQuestions = [];
         
         currentItems.forEach(item => {
-            const originalIndex = parseInt(item.getAttribute('data-index'), 10);
-            reorderedQuestions.push(window.state.questions[originalIndex]);
+            const qid = item.dataset.qid; // Grabs the q.id assigned in questions.js
+            const questionObj = state.ema.questions.find(q => q.id === qid);
+            if (questionObj) {
+                reorderedQuestions.push(questionObj);
+            }
         });
 
         // Update the global state
-        window.state.questions = reorderedQuestions;
+        state.ema.questions = reorderedQuestions;
 
-        // Force a re-render so indices are updated correctly
-        if (typeof renderQuestions === 'function') {
-            renderQuestions(); 
-        }
-        if (typeof updatePreview === 'function') {
-            updatePreview();
-        }
-        // Force save
-        if (typeof StorageManager !== 'undefined') {
-            StorageManager.saveLocalState();
-        }
+        // Re-render so numbers update visually
+        if (typeof renderQuestions === 'function') renderQuestions(); 
+        if (typeof schedulePreview === 'function') schedulePreview();
+        
+        if (typeof StorageManager !== 'undefined') StorageManager.saveLocalState();
     }
 }
 
-// Attach observer to re-initialize drag-and-drop whenever questions are added/removed
+// Disconnect/reconnect observer to avoid infinite loops when we renderQuestions()
 const observer = new MutationObserver(() => {
+    observer.disconnect();
     initializeDragAndDrop();
+    const list = document.getElementById('question-list');
+    if (list) observer.observe(list, { childList: true });
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-    const list = document.getElementById('questions-list');
+    const list = document.getElementById('question-list');
     if (list) {
-        observer.observe(list, { childList: true });
         initializeDragAndDrop();
+        observer.observe(list, { childList: true });
     }
 });
