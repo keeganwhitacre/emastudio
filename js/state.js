@@ -135,17 +135,22 @@ function buildConfig() {
     ema:        JSON.parse(JSON.stringify(state.ema)),
     modules:    {}
   };
-
+ 
   // Emit each enabled module's settings under its id key
   state.modules.forEach(mod => {
     if (mod.enabled) {
       cfg.modules[mod.id] = JSON.parse(JSON.stringify(mod.settings));
     }
   });
-
-  // Legacy compatibility: keep a flat `tasks` array listing active module ids
-  // so any existing study-base.js code that checks `config.tasks` still works.
+ 
+  // Alias: module-epat.js reads config.pat.* — mirror the epat settings
+  // there so it gets trials, trial_duration_sec, sqi_threshold, etc.
+  // null when epat is not enabled (module-epat.js won't be in the export
+  // anyway, but belt-and-suspenders).
+  cfg.pat = cfg.modules.epat ?? null;
+ 
+  // Legacy compatibility: flat tasks array for any code that checks config.tasks
   cfg.tasks = ["ema", ...state.modules.filter(m => m.enabled).map(m => m.id)];
-
+ 
   return cfg;
 }

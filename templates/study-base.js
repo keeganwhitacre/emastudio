@@ -103,34 +103,74 @@ function collectDeviceMetadata() {
     startedAt: null, device: null, data: [], status: "in_progress" 
   };
 
-  const cbParam = params.get('cb');
   const dynamicWindows = config.ema?.scheduling?.windows || [];
-  const windowIds = dynamicWindows.map(w => w.id);
-  
+
+  // ---------------------------------------------------------------------------
+  // Build sessionData.phases from w.phases
+  //
+  // w.phases = { pre: bool, task: "epat"|null, post: bool }
+  //
+  // Phase token format:
+  //   EMA blocks   → "pre_<windowId>"  or "post_<windowId>"  (EMA.start() consumes these)
+  //   Task modules → "<moduleId>"                             (TASK_MODULES[id]() handles these)
+  //
+  // Examples:
+  //   { pre: true,  task: null,   post: false } → ["pre_w1"]
+  //   { pre: true,  task: "epat", post: true  } → ["pre_w1", "epat", "post_w1"]
+  //   { pre: false, task: "epat", post: false } → ["epat"]
+  // ---------------------------------------------------------------------------
   if (sessionId === 'onboarding') {
-    sessionData.type = "onboarding"; document.getElementById('task-subtitle').textContent = "Study Setup";
-  } else if (windowIds.includes(sessionId) || sessionId.startsWith('ema')) {
-    sessionData.type = "ema_only"; sessionData.phases = [sessionId];
-  } else if (sessionId.startsWith('pair_')) {
-    sessionData.type = "paired";
-    const slot = sessionId.replace('pair_', '');
-    const emaPhase = windowIds.includes(slot) ? slot : 'ema' + slot;
-    const cb = cbParam === 'pat_first' ? 'pat_first' : 'ema_first';
-    sessionData.counterbalance = cb; 
-    sessionData.phases = cb === 'ema_first' ? [emaPhase, 'pat'] : ['pat', emaPhase];
-    
-    const wCfg = dynamicWindows.find(w => w.id === slot);
-    document.getElementById('task-subtitle').textContent = wCfg ? wCfg.label : (slot.charAt(0).toUpperCase() + slot.slice(1) + " Session");
+    sessionData.type = "onboarding";
+    document.getElementById('task-subtitle').textContent = "Study Setup";
+
   } else {
-    sessionData.type = "pat_only"; sessionData.phases = ['pat'];
+    const wCfg = dynamicWindows.find(w => w.id === sessionId);
+
+    if (wCfg) {
+      const ph = wCfg.phases || { pre: true, task: null, post: false };
+      const phases = [];
+      if (ph.pre)  phases.push(`pre_${wCfg.id}`);
+      if (ph.task) phases.push(ph.task);
+      if (ph.post) phases.push(`post_${wCfg.id}`);
+
+      sessionData.phases   = phases;
+      sessionData.type     = ph.task ? `ema_${ph.task}` : "ema_only";
+      sessionData.windowId = wCfg.id;
+
+      document.getElementById('task-subtitle').textContent =
+        config.study.greetings?.[wCfg.id] || wCfg.label || 'Check-In';
+      document.getElementById('ema-greeting').textContent =
+        config.study.greetings?.[wCfg.id] || wCfg.label || 'Check-In';
+
+    } else {
+      console.warn(`[study-base] Unknown sessionId "${sessionId}", falling back to EMA pre-only.`);
+      sessionData.phases = [`pre_${sessionId}`];
+      sessionData.type   = "ema_only";
+      document.getElementById('ema-greeting').textContent = 'Check-In';
+    }
   }
 
-  // Dynamic greeting logic based on schedule windows
-  const cleanEmaId = sessionId.replace('pair_','').replace('ema','');
-  const matchedWindow = dynamicWindows.find(w => w.id === cleanEmaId);
-  document.getElementById('ema-greeting').textContent = config.study.greetings?.[cleanEmaId] || (matchedWindow ? matchedWindow.label : 'Check-In');
-
   // {{MODULES_INJECT}}
+
+  // ---------------------------------------------------------------------------
+  // TASK MODULE REGISTRY
+  // ---------------------------------------------------------------------------
+  // Inside the IIFE so handlers share the same closure as `config`, `ePAT`,
+  // and `advancePhase`. Each handler must call advancePhase() when done.
+  // Adding a new module = one new entry here; runNextPhase() needs no changes.
+  // ---------------------------------------------------------------------------
+  const TASK_MODULES = {
+    epat: () => {
+      if (window.ePATCore && typeof ePAT !== 'undefined') {
+        ePAT.startBaseline();
+      } else {
+        console.warn('[study-base] ePAT module not available, skipping.');
+        advancePhase();
+      }
+    }
+    // future: nback:   () => NBack.start(),
+    // future: flanker: () => Flanker.start(),
+  };
 
   startBtn.addEventListener('click', () => {
     sessionData.participantId = pidInput.value.trim();
@@ -146,15 +186,25 @@ function collectDeviceMetadata() {
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // runNextPhase — dispatches on phase token prefix:
+  //   "pre_*" / "post_*"  → EMA.start()
+  //   anything else       → TASK_MODULES lookup
+  // ---------------------------------------------------------------------------
   function runNextPhase() {
     const phase = sessionData.phases[sessionData.currentPhase];
-    if (!phase) { finalizeSession(); return; }
-    
-    if (phase === 'pat') {
-      if (config.tasks.includes('pat') && window.ePATCore) ePAT.startBaseline();
-      else advancePhase();
-    } else {
+    if (phase === undefined) { finalizeSession(); return; }
+
+    if (phase.startsWith('pre_') || phase.startsWith('post_')) {
       EMA.start(phase);
+    } else {
+      const handler = TASK_MODULES[phase];
+      if (handler) {
+        handler();
+      } else {
+        console.warn(`[study-base] No handler for task phase "${phase}", skipping.`);
+        advancePhase();
+      }
     }
   }
 
