@@ -3,7 +3,6 @@
  * Handles UI interactions, file binding, and rendering Chart.js graphs.
  */
 
-// Global Chart configurations to match EMA Studio Dark Theme
 Chart.defaults.color = '#768390';
 Chart.defaults.font.family = '"TX-02", "Instrument Sans", system-ui, sans-serif';
 Chart.defaults.font.size = 11;
@@ -25,39 +24,123 @@ const AppUI = {
   bindEvents() {
     const importBtn = document.getElementById('btn-import-data');
     const fileInput = document.getElementById('folder-import-input');
+    const exportBtn = document.getElementById('export-csv-btn');
+    const filterRapid = document.getElementById('toggle-filter-rapid');
+    const filterDate = document.getElementById('filter-date');
+    const navTabs = document.querySelectorAll('.tab-btn');
 
+    // 1. File Import
     importBtn.addEventListener('click', () => fileInput.click());
-
     fileInput.addEventListener('change', async (e) => {
       if (e.target.files.length === 0) return;
       
-      document.getElementById('status-badge').textContent = "Processing...";
-      document.getElementById('status-badge').className = "badge badge-warn";
-      
+      this.setStatus("Processing...", "badge-warn");
       try {
         const data = await DataParser.ingestFiles(e.target.files);
-        this.updateDashboard(data);
-        
-        // Hide empty state
+        this.populateDateDropdown(data.allSessions);
+        this.refreshData(); // Triggers UI update
         document.getElementById('empty-state').style.display = 'none';
-        
-        document.getElementById('status-badge').textContent = "Synced Just Now";
-        document.getElementById('status-badge').className = "badge badge-good";
-        
+        this.setStatus("Synced Just Now", "badge-good");
       } catch (err) {
         console.error(err);
         alert("Error parsing folder. Make sure it contains EMA JSON exports.");
-        document.getElementById('status-badge').textContent = "Error";
-        document.getElementById('status-badge').className = "badge badge-danger";
+        this.setStatus("Error", "badge-danger");
       }
-      
-      // Reset input so they can re-select the same folder if needed
       fileInput.value = "";
+    });
+
+    // 2. Interactive Filters
+    filterRapid.addEventListener('change', () => this.refreshData());
+    filterDate.addEventListener('change', () => this.refreshData());
+
+    // 3. Export CSV
+    exportBtn.addEventListener('click', () => this.exportToCSV());
+
+    // 4. Top Navigation Tabs (Smooth Scroll)
+    navTabs.forEach((tab, index) => {
+      tab.addEventListener('click', (e) => {
+        document.querySelector('.tab-btn.active').classList.remove('active');
+        e.target.classList.add('active');
+        
+        // Scroll map based on button order
+        const targets = ['dashboard-panel', 'complianceChart', 'latencyChart', 'participant-table-body'];
+        const targetId = targets[index];
+        const el = document.getElementById(targetId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
     });
   },
 
+  setStatus(text, badgeClass) {
+    const badge = document.getElementById('status-badge');
+    badge.textContent = text;
+    badge.className = `badge ${badgeClass}`;
+  },
+
+  refreshData() {
+    if (DataParser.state.allSessions.length === 0) return;
+    
+    // Read current UI state
+    const filters = {
+        excludeNoise: document.getElementById('toggle-filter-rapid').checked,
+        day: document.getElementById('filter-date').value
+    };
+
+    // Tell parser to recalculate
+    DataParser.calculateMetrics(filters);
+    
+    // Redraw the DOM
+    this.updateDashboard(DataParser.state);
+  },
+
+  populateDateDropdown(sessions) {
+    const select = document.getElementById('filter-date');
+    const maxDay = Math.max(...sessions.map(s => s.day), 1);
+    
+    select.innerHTML = '<option value="all">All available data</option>';
+    for(let i = 1; i <= maxDay; i++) {
+        const opt = document.createElement('option');
+        opt.value = i.toString();
+        opt.textContent = `Day ${i}`;
+        select.appendChild(opt);
+    }
+  },
+
+  exportToCSV() {
+    const sessions = DataParser.state.filteredSessions;
+    if (sessions.length === 0) return alert("No data available to export. Import a folder first.");
+
+    // Extract all unique keys across all JSONs (in case some sessions have different questions)
+    const headerSet = new Set();
+    sessions.forEach(s => Object.keys(s).forEach(k => headerSet.add(k)));
+    const headers = Array.from(headerSet);
+
+    // Build CSV string
+    const csvRows = [];
+    csvRows.push(headers.join(',')); // Header row
+
+    sessions.forEach(session => {
+        const values = headers.map(header => {
+            const val = session[header];
+            // Handle commas or quotes in string answers
+            if (typeof val === 'string') return `"${val.replace(/"/g, '""')}"`;
+            if (val === undefined || val === null) return "";
+            return val;
+        });
+        csvRows.push(values.join(','));
+    });
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.setAttribute('href', url);
+    a.setAttribute('download', 'ema_studio_export.csv');
+    a.click();
+  },
+
   initEmptyCharts() {
-    // 1. Compliance Bar Chart
     const ctxComp = document.getElementById('complianceChart').getContext('2d');
     this.charts.compliance = new Chart(ctxComp, {
       type: 'bar',
@@ -72,7 +155,6 @@ const AppUI = {
       }
     });
 
-    // 2. Disposition Doughnut Chart
     const ctxDisp = document.getElementById('dispositionChart').getContext('2d');
     this.charts.disposition = new Chart(ctxDisp, {
       type: 'doughnut',
@@ -83,7 +165,6 @@ const AppUI = {
       }
     });
 
-    // 3. Latency Line Chart
     const ctxLat = document.getElementById('latencyChart').getContext('2d');
     this.charts.latency = new Chart(ctxLat, {
       type: 'line',
@@ -113,10 +194,8 @@ const AppUI = {
     
     document.getElementById('filter-cohort').innerHTML = `<option>All Participants (n=${data.participants.size})</option>`;
     
-    // Progress sidebar
     const studyDays = data.studyConfig?.study?.days || Object.keys(data.metrics.complianceByDay).length;
-    // Estimate current day by finding max day with data
-    const currentDay = Math.max(...data.rawSessions.map(s => s.day), 1);
+    const currentDay = Math.max(...data.allSessions.map(s => s.day), 1);
     const pct = Math.round((currentDay / studyDays) * 100);
     
     document.getElementById('study-progress-text').textContent = `Day ${currentDay} of ${studyDays}`;
@@ -126,7 +205,6 @@ const AppUI = {
   },
 
   updateKPIs(m) {
-    // Math formatters
     const fmtPct = (num, den) => den === 0 ? "0%" : Math.round((num / den) * 100) + "%";
     const fmtMsToMinSec = (ms) => {
         if(ms === 0) return "--m --s";
@@ -135,37 +213,32 @@ const AppUI = {
         return `${mins}m ${secs}s`;
     };
 
-    // 1. Compliance
     const compliancePct = m.totalExpectedPings === 0 ? 0 : (m.totalCompleted / m.totalExpectedPings) * 100;
     document.getElementById('kpi-compliance').textContent = fmtPct(m.totalCompleted, m.totalExpectedPings);
     this.setCardStatus('card-compliance', compliancePct >= 80 ? 'good' : (compliancePct >= 60 ? 'warn' : 'danger'));
 
-    // 2. Pings
     document.getElementById('kpi-pings').textContent = m.totalDelivered;
     
-    // 3. Noise (Speeding)
     const noisePct = m.totalCompleted === 0 ? 0 : (m.totalNoise / m.totalCompleted) * 100;
     document.getElementById('kpi-noise').textContent = fmtPct(m.totalNoise, m.totalCompleted);
     this.setCardStatus('card-noise', noisePct < 5 ? 'good' : (noisePct < 15 ? 'warn' : 'danger'));
 
-    // 4. Avg Time
     document.getElementById('kpi-time').textContent = fmtMsToMinSec(m.avgTimeMs);
   },
 
   setCardStatus(cardId, statusClass) {
     const el = document.getElementById(cardId);
-    el.className = "kpi-card " + statusClass;
+    if(el) el.className = "kpi-card " + statusClass;
   },
 
   updateCharts(m) {
     const days = Object.keys(m.complianceByDay).sort((a,b)=>a-b);
     const labels = days.map(d => `Day ${d}`);
     
-    // 1. Compliance Chart
+    // 1. Compliance Stacked Bar
     const completedData = days.map(d => m.complianceByDay[d].completed);
     const missedData = days.map(d => m.complianceByDay[d].missed);
     
-    // Normalize to percentages per day for the stacked bar
     const compPctData = completedData.map((val, i) => {
         const total = val + missedData[i];
         return total === 0 ? 0 : Math.round((val/total)*100);
@@ -198,7 +271,6 @@ const AppUI = {
 
     // 3. Latency Line
     const latencyDataMins = days.map(d => Math.round(m.latencyByDay[d] / 60000));
-    
     this.charts.latency.data = {
       labels: labels,
       datasets: [{
@@ -212,7 +284,6 @@ const AppUI = {
     };
     this.charts.latency.update();
 
-    // Update median badge (simplistic avg for now)
     const overallLatMin = Math.round(m.avgLatencyMs / 60000);
     document.getElementById('latency-median-badge').textContent = `Avg: ${overallLatMin}m`;
   },
@@ -221,23 +292,25 @@ const AppUI = {
     const tbody = document.getElementById('participant-table-body');
     tbody.innerHTML = '';
 
-    // Calculate per-participant compliance
     const pStats = {};
-    data.rawSessions.forEach(s => {
+    data.filteredSessions.forEach(s => {
       if(!pStats[s.participantId]) pStats[s.participantId] = { completed: 0 };
       pStats[s.participantId].completed++;
     });
 
-    // We assume expected pings = Total Expected / Num Participants
-    const expectedPerP = data.metrics.totalExpectedPings / data.participants.size;
+    // If filtering by Day, expected is much smaller
+    const currentDayFilter = document.getElementById('filter-date').value;
+    const expectedPerDay = data.studyConfig?.schedule?.windows?.length || 3;
+    const studyDays = data.studyConfig?.study?.days || 14;
+    
+    const expectedPerP = currentDayFilter === 'all' ? (studyDays * expectedPerDay) : expectedPerDay;
 
     const rows = Object.keys(pStats).map(pId => {
       const comp = pStats[pId].completed;
       const pct = Math.round((comp / expectedPerP) * 100);
-      return { id: pId, pct: pct };
+      return { id: pId, pct: Math.min(100, pct) }; // Cap at 100% just in case of weird data
     });
 
-    // Sort lowest compliance first (Watchlist)
     rows.sort((a,b) => a.pct - b.pct);
 
     rows.forEach(r => {
@@ -260,5 +333,4 @@ const AppUI = {
   }
 };
 
-// Initialize App
 document.addEventListener('DOMContentLoaded', () => AppUI.init());
