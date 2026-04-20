@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 /* =============================================
-   DESIGN TOKENS & LAYOUT (Inherited from EMA Studio)
+   DESIGN TOKENS & LAYOUT
    ============================================= */
 :root {
   --bg: #0d1117; --bg-1: #161b22; --bg-2: #21262d; --bg-3: #2d333b;
@@ -77,13 +77,18 @@ input:focus, select:focus { border-color: var(--accent); }
 .toggle input:checked + .toggle-track::after { transform: translateX(14px); background: #fff; }
 
 /* Dashboard Content Area */
-#dashboard-panel { background: var(--bg); overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
-.dashboard-header { display: flex; justify-content: space-between; align-items: flex-end; }
+#dashboard-panel { background: var(--bg); overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; position: relative; }
+.dashboard-header { display: flex; justify-content: space-between; align-items: flex-end; flex-shrink: 0; }
 .dashboard-title { font-size: 20px; font-weight: 600; color: var(--fg); letter-spacing: -0.02em; }
 .dashboard-subtitle { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
 .seg-ctrl { display: flex; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 3px; gap: 3px; }
 .seg-btn { flex: 1; padding: 5px 12px; border: none; border-radius: 4px; background: transparent; color: var(--fg-3); font-family: var(--font); font-size: 11px; font-weight: 600; cursor: pointer; transition: all var(--transition); letter-spacing: 0.02em; }
 .seg-btn.active { background: var(--bg-3); color: var(--fg); }
+
+/* Dashboard Tab Views */
+.dashboard-view { display: none; flex-direction: column; gap: 24px; animation: fadeIn 0.3s ease; flex: 1; }
+.dashboard-view.active { display: flex; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
 /* KPI Grid */
 .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
@@ -95,22 +100,20 @@ input:focus, select:focus { border-color: var(--accent); }
 .kpi-title { font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.05em; }
 .kpi-value { font-size: 28px; font-weight: 700; color: var(--fg); margin: 8px 0 4px; font-family: var(--font-mono); }
 .kpi-trend { font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 4px; }
-.trend-up { color: var(--green); }
-.trend-down { color: var(--accent); }
-.trend-neutral { color: var(--fg-3); }
 
 /* Chart Layouts */
 .chart-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+.chart-grid-halves { grid-template-columns: 1fr 1fr; }
 .chart-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; display: flex; flex-direction: column; }
 .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .chart-title { font-size: 14px; font-weight: 600; color: var(--fg); }
-.chart-container { position: relative; height: 240px; width: 100%; }
-.chart-container-sm { height: 180px; }
+.chart-container { position: relative; height: 280px; width: 100%; }
+.chart-container-lg { height: 400px; }
 
 /* Tables */
-.data-table-container { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; display: flex; flex-direction: column;}
+.data-table-container { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; display: flex; flex-direction: column; flex: 1; min-height: 400px;}
 .table-header-row { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid var(--border); }
-.table-wrap { overflow-y: auto; flex: 1; max-height: 180px;}
+.table-wrap { overflow-y: auto; flex: 1; }
 table { width: 100%; border-collapse: collapse; text-align: left; }
 th { padding: 12px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); background: var(--bg-2); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2;}
 td { padding: 12px 16px; font-size: 13px; color: var(--fg-2); border-bottom: 1px solid var(--border); font-family: var(--font-mono); }
@@ -130,7 +133,6 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
 .badge-danger { background: var(--red-dim); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
 .badge-neutral { background: var(--bg-3); color: var(--fg-3); border: 1px solid var(--border-hi); }
 
-/* Custom Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -142,7 +144,7 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
 
   <!-- ========== TOP BAR ========== -->
   <header id="topbar">
-    <a href="index.html" class="topbar-back" title="Back to Home">
+    <a href="builder.html" class="topbar-back" title="Back to Builder">
       <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"/></svg>
     </a>
     <a href="index.html" class="topbar-brand">
@@ -156,17 +158,14 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
     </a>
     <div class="topbar-sep"></div>
     <nav class="topbar-tabs">
-      <button class="tab-btn active">Overview</button>
-      <button class="tab-btn">Compliance</button>
-      <button class="tab-btn">Signals & Noise</button>
-      <button class="tab-btn">Participants</button>
+      <button class="tab-btn active" data-target="view-overview">Overview</button>
+      <button class="tab-btn" data-target="view-compliance">Compliance</button>
+      <button class="tab-btn" data-target="view-signals">Signals & Noise</button>
+      <button class="tab-btn" data-target="view-participants">Participants</button>
     </nav>
     <div class="topbar-actions">
       <span class="badge badge-neutral" id="status-badge" style="margin-right:8px;font-family:var(--font);font-size:10px;">Waiting for data</span>
-      
-      <!-- Hidden Folder Input -->
       <input type="file" id="folder-import-input" webkitdirectory directory multiple style="display:none;">
-      
       <button class="btn-ghost" id="btn-import-data">
         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75zM7.25 7.689V2a.75.75 0 00-1.5 0v5.689L3.53 5.469a.75.75 0 00-1.06 1.06l3.25 3.25a.75.75 0 001.06 0l3.25-3.25a.75.75 0 00-1.06-1.06L7.25 7.689z"/></svg>
         Import Folder
@@ -193,9 +192,7 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
         <div class="field-hint" style="margin-top:6px;" id="study-progress-hint">Import a study folder to see progress.</div>
       </div>
     </div>
-
     <div class="divider"></div>
-
     <div>
       <span class="section-title">Data Filters</span>
       <div class="field-group" style="margin-bottom:12px;">
@@ -204,7 +201,6 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
           <option value="all">All available data</option>
         </select>
       </div>
-      
       <div class="field-group" style="margin-bottom:12px;">
         <label class="field-label">Participant Cohort</label>
         <select id="filter-cohort">
@@ -212,9 +208,7 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
         </select>
       </div>
     </div>
-
     <div class="divider"></div>
-
     <div>
       <span class="section-title">Quality Controls (Recalculates charts)</span>
       <div class="toggle-row">
@@ -235,9 +229,9 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
   </aside>
 
   <!-- ========== DASHBOARD CONTENT ========== -->
-  <main id="dashboard-panel" style="position: relative;">
+  <main id="dashboard-panel">
     
-    <!-- Empty State Overlay (Hidden once data is loaded) -->
+    <!-- Empty State Overlay -->
     <div id="empty-state">
       <div class="empty-box">
         <div class="empty-title">Ready for Analysis</div>
@@ -248,6 +242,7 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
       </div>
     </div>
 
+    <!-- Static Header -->
     <div class="dashboard-header">
       <div>
         <h1 class="dashboard-title" id="dash-study-name">Study Dashboard</h1>
@@ -259,87 +254,112 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
       </div>
     </div>
 
-    <!-- Top KPIs -->
-    <div class="kpi-grid">
-      <div class="kpi-card" id="card-compliance">
-        <span class="kpi-title">Avg. Compliance Rate</span>
-        <span class="kpi-value" id="kpi-compliance">--%</span>
-        <div class="kpi-trend trend-neutral" id="trend-compliance">
-          Awaiting data
+    <!-- VIEW: OVERVIEW -->
+    <div id="view-overview" class="dashboard-view active">
+      <div class="kpi-grid">
+        <div class="kpi-card" id="card-compliance">
+          <span class="kpi-title">Avg. Compliance Rate</span>
+          <span class="kpi-value" id="kpi-compliance">--%</span>
+          <div class="kpi-trend trend-neutral" id="trend-compliance">Awaiting data</div>
+        </div>
+        <div class="kpi-card" id="card-pings">
+          <span class="kpi-title">Total Pings Delivered</span>
+          <span class="kpi-value" id="kpi-pings">--</span>
+          <div class="kpi-trend trend-neutral" id="trend-pings">Awaiting data</div>
+        </div>
+        <div class="kpi-card" id="card-noise">
+          <span class="kpi-title">Signal Noise / Invalid</span>
+          <span class="kpi-value" id="kpi-noise">--%</span>
+          <div class="kpi-trend trend-neutral" id="trend-noise">Speeding or partials</div>
+        </div>
+        <div class="kpi-card" id="card-time">
+          <span class="kpi-title">Avg. Time to Complete</span>
+          <span class="kpi-value" id="kpi-time">--m --s</span>
+          <div class="kpi-trend trend-neutral" id="trend-time">Across all tasks</div>
         </div>
       </div>
-      <div class="kpi-card" id="card-pings">
-        <span class="kpi-title">Total Pings Delivered</span>
-        <span class="kpi-value" id="kpi-pings">--</span>
-        <div class="kpi-trend trend-neutral" id="trend-pings">
-          Awaiting data
+      
+      <!-- New Overview Charts & Watchlist -->
+      <div class="chart-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Study Health Trend (Daily Compliance)</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="overviewChart"></canvas>
+          </div>
         </div>
-      </div>
-      <div class="kpi-card" id="card-noise">
-        <span class="kpi-title">Signal Noise / Invalid</span>
-        <span class="kpi-value" id="kpi-noise">--%</span>
-        <div class="kpi-trend trend-neutral" id="trend-noise">
-          Speeding or partials
-        </div>
-      </div>
-      <div class="kpi-card" id="card-time">
-        <span class="kpi-title">Avg. Time to Complete</span>
-        <span class="kpi-value" id="kpi-time">--m --s</span>
-        <div class="kpi-trend trend-neutral" id="trend-time">
-          Across all tasks
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Attention Required</span>
+            <span class="badge badge-danger" id="overview-critical-count">0</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Participant</th>
+                  <th>Compliance</th>
+                </tr>
+              </thead>
+              <tbody id="overview-watchlist-body">
+                <tr>
+                  <td colspan="2" style="text-align: center; color: var(--fg-3); padding-top: 24px;">No data loaded</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Charts Row 1 -->
-    <div class="chart-grid">
-      <!-- Compliance Over Time -->
+    <!-- VIEW: COMPLIANCE -->
+    <div id="view-compliance" class="dashboard-view">
       <div class="chart-card">
         <div class="chart-header">
           <span class="chart-title">Daily Compliance Trend</span>
         </div>
-        <div class="chart-container">
+        <div class="chart-container chart-container-lg">
           <canvas id="complianceChart"></canvas>
-        </div>
-      </div>
-
-      <!-- Response Breakdown -->
-      <div class="chart-card">
-        <div class="chart-header">
-          <span class="chart-title">Ping Dispositions</span>
-        </div>
-        <div class="chart-container">
-          <canvas id="dispositionChart"></canvas>
         </div>
       </div>
     </div>
 
-    <!-- Charts Row 2 & Tables -->
-    <div class="chart-grid" style="grid-template-columns: 1fr 1fr;">
-      
-      <!-- Noise/Latency Scatter -->
-      <div class="chart-card">
-        <div class="chart-header">
-          <span class="chart-title">Signal Latency (Time to open ping)</span>
-          <span class="badge badge-neutral" id="latency-median-badge">Med: --</span>
+    <!-- VIEW: SIGNALS & NOISE -->
+    <div id="view-signals" class="dashboard-view">
+      <div class="chart-grid chart-grid-halves">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Response Dispositions</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="dispositionChart"></canvas>
+          </div>
         </div>
-        <div class="chart-container chart-container-sm">
-          <canvas id="latencyChart"></canvas>
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Signal Latency (Time to open)</span>
+            <span class="badge badge-neutral" id="latency-median-badge">Avg: --</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="latencyChart"></canvas>
+          </div>
         </div>
       </div>
+    </div>
 
-      <!-- At Risk Participants Table -->
+    <!-- VIEW: PARTICIPANTS -->
+    <div id="view-participants" class="dashboard-view">
       <div class="data-table-container">
         <div class="table-header-row">
-          <span class="chart-title">Participant Watchlist</span>
-          <button class="btn-ghost" style="padding:2px 8px; font-size:10px;">View All</button>
+          <span class="chart-title">Participant Watchlist & Status</span>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Compliance</th>
+                <th>Participant ID</th>
+                <th>Overall Compliance</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -351,7 +371,6 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
           </table>
         </div>
       </div>
-
     </div>
 
   </main>
@@ -360,6 +379,5 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
 <!-- Scripts -->
 <script src="js/dashboard/parser.js"></script>
 <script src="js/dashboard/dashboard.js"></script>
-
 </body>
 </html>

@@ -11,6 +11,7 @@ const gridConfig = { color: '#30363d', drawBorder: false };
 
 const AppUI = {
   charts: {
+    overview: null,
     compliance: null,
     disposition: null,
     latency: null
@@ -56,12 +57,12 @@ const AppUI = {
       fileInput.value = "";
     });
 
-    // 2. Interactive Filters (Trigger refresh on any change)
+    // 2. Interactive Filters
     [filterRapid, filterMissed, filterDate, filterCohort].forEach(el => {
         el.addEventListener('change', () => this.refreshData());
     });
 
-    // 3. Segmented Control (Aggregate vs Per Participant)
+    // 3. Segmented Control
     segBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
             document.querySelector('.seg-ctrl .seg-btn.active')?.classList.remove('active');
@@ -69,44 +70,38 @@ const AppUI = {
             
             const mode = e.target.textContent.trim();
             if (mode === 'Per Participant') {
-                // Change dropdown to list individual IDs
                 const pList = Array.from(DataParser.state.participants).sort();
                 filterCohort.innerHTML = pList.map(p => `<option value="${p}">${p}</option>`).join('');
             } else {
-                // Revert to Aggregate
                 filterCohort.innerHTML = `<option value="all">All Participants (n=${DataParser.state.participants.size})</option>`;
             }
-            this.refreshData(); // Recalculate based on new dropdown state
+            this.refreshData();
         });
     });
 
-    // 4. Top Navigation Tabs (Smooth Scroll & Highlight)
+    // 4. Tab Navigation (Dedicated Views)
     navTabs.forEach((tab) => {
       tab.addEventListener('click', (e) => {
+        // Update active tab button
         document.querySelector('.topbar-tabs .tab-btn.active')?.classList.remove('active');
         e.target.classList.add('active');
         
-        const mode = e.target.textContent.trim();
-        let targetId = '';
-        
-        // Map tabs to DOM element IDs
-        if (mode === 'Overview') targetId = 'dashboard-panel'; // Scrolls to top
-        if (mode === 'Compliance') targetId = 'complianceChart';
-        if (mode === 'Signals & Noise') targetId = 'latencyChart';
-        if (mode === 'Participants') targetId = 'participant-table-body';
-        
-        const el = document.getElementById(targetId);
-        if (el) {
-          // Scroll it into view
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          
-          // Flash the border of the closest card to draw the user's eye
-          const card = el.closest('.chart-card, .data-table-container, .kpi-grid');
-          if (card) {
-            card.style.transition = 'border-color 0.4s ease';
-            card.style.borderColor = 'var(--accent)';
-            setTimeout(() => card.style.borderColor = 'var(--border)', 1200);
-          }
+        // Hide all views
+        document.querySelectorAll('.dashboard-view').forEach(view => {
+            view.classList.remove('active');
+        });
+
+        // Show targeted view
+        const targetId = e.target.getAttribute('data-target');
+        const viewEl = document.getElementById(targetId);
+        if (viewEl) {
+            viewEl.classList.add('active');
+            
+            // Force charts to resize in case the window size changed while they were hidden
+            if (this.charts.overview) this.charts.overview.resize();
+            if (this.charts.compliance) this.charts.compliance.resize();
+            if (this.charts.disposition) this.charts.disposition.resize();
+            if (this.charts.latency) this.charts.latency.resize();
         }
       });
     });
@@ -124,7 +119,6 @@ const AppUI = {
   refreshData() {
     if (DataParser.state.allSessions.length === 0) return;
     
-    // Read current UI state
     const filters = {
         excludeNoise: document.getElementById('toggle-filter-rapid').checked,
         excludeMissed: document.getElementById('toggle-exclude-missed').checked,
@@ -132,7 +126,6 @@ const AppUI = {
         participant: document.getElementById('filter-cohort').value || 'all'
     };
 
-    // Tell parser to recalculate
     DataParser.calculateMetrics(filters);
     this.updateDashboard(DataParser.state);
   },
@@ -152,7 +145,7 @@ const AppUI = {
 
   exportToCSV() {
     const sessions = DataParser.state.filteredSessions;
-    if (sessions.length === 0) return alert("No data available to export. Import a folder first.");
+    if (sessions.length === 0) return alert("No data available to export.");
 
     const headerSet = new Set();
     sessions.forEach(s => Object.keys(s).forEach(k => headerSet.add(k)));
@@ -182,6 +175,20 @@ const AppUI = {
   },
 
   initEmptyCharts() {
+    const ctxOver = document.getElementById('overviewChart').getContext('2d');
+    this.charts.overview = new Chart(ctxOver, {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } } },
+        scales: {
+          x: { grid: { display: false } },
+          y: { beginAtZero: true, max: 100, grid: gridConfig, ticks: { callback: v => v + '%' } }
+        }
+      }
+    });
+
     const ctxComp = document.getElementById('complianceChart').getContext('2d');
     this.charts.compliance = new Chart(ctxComp, {
       type: 'bar',
@@ -261,7 +268,6 @@ const AppUI = {
 
     document.getElementById('kpi-pings').textContent = m.totalDelivered;
     
-    // Calculate noise based on the raw pre-filtered total to give an accurate "% of data that is noise"
     const isExcludingNoise = document.getElementById('toggle-filter-rapid').checked;
     const baseTotal = isExcludingNoise ? (m.totalCompleted + m.totalNoise) : m.totalCompleted;
     const noisePct = baseTotal === 0 ? 0 : (m.totalNoise / baseTotal) * 100;
@@ -281,7 +287,6 @@ const AppUI = {
     const days = Object.keys(m.complianceByDay).sort((a,b)=>a-b);
     const labels = days.map(d => `Day ${d}`);
     
-    // 1. Compliance Stacked Bar
     const completedData = days.map(d => m.complianceByDay[d].completed);
     const missedData = days.map(d => m.complianceByDay[d].missed);
     
@@ -303,7 +308,20 @@ const AppUI = {
     };
     this.charts.compliance.update();
 
-    // 2. Disposition Doughnut
+    // Populate Overview Line Chart
+    this.charts.overview.data = {
+      labels: labels,
+      datasets: [{
+        label: 'Daily Compliance %',
+        data: compPctData,
+        borderColor: '#3fb950',
+        backgroundColor: 'rgba(63,185,80,0.1)',
+        borderWidth: 2, tension: 0.4, fill: true,
+        pointBackgroundColor: '#161b22', pointBorderColor: '#3fb950', pointRadius: 4
+      }]
+    };
+    this.charts.overview.update();
+
     const isExcludingNoise = document.getElementById('toggle-filter-rapid').checked;
     const valid = m.totalCompleted - (isExcludingNoise ? 0 : m.totalNoise);
     
@@ -317,7 +335,6 @@ const AppUI = {
     };
     this.charts.disposition.update();
 
-    // 3. Latency Line
     const latencyDataMins = days.map(d => Math.round(m.latencyByDay[d] / 60000));
     this.charts.latency.data = {
       labels: labels,
@@ -355,7 +372,6 @@ const AppUI = {
 
     const rows = Object.keys(pStats).map(pId => {
       const comp = pStats[pId].completed;
-      // If "Exclude Missed" is flipped, the expected denominator becomes exactly what they completed
       const denominator = isExcludeMissed ? comp : expectedPerP;
       const pct = denominator === 0 ? 0 : Math.round((comp / denominator) * 100);
       return { id: pId, pct: Math.min(100, pct) };
@@ -380,6 +396,26 @@ const AppUI = {
       `;
       tbody.appendChild(tr);
     });
+
+    // Populate Overview Mini-Watchlist (Top 5 lowest compliance < 60%)
+    const overviewTbody = document.getElementById('overview-watchlist-body');
+    overviewTbody.innerHTML = '';
+    
+    const criticalRows = rows.filter(r => r.pct < 60);
+    document.getElementById('overview-critical-count').textContent = criticalRows.length;
+
+    if (criticalRows.length === 0) {
+        overviewTbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: var(--fg-3); padding-top: 24px;">No critical participants</td></tr>';
+    } else {
+        criticalRows.slice(0, 5).forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight: 500;">${r.id}</td>
+                <td><span style="color: var(--red); font-weight:600;">${r.pct}%</span></td>
+            `;
+            overviewTbody.appendChild(tr);
+        });
+    }
   }
 };
 
