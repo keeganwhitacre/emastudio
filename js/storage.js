@@ -184,6 +184,5 @@ const StorageManager = {
     }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    StorageManager.init();
-});
+// Initialize immediately so state is loaded BEFORE the inline script in builder.html triggers renders
+StorageManager.init();
