@@ -7,24 +7,22 @@
 const DataParser = {
     state: {
       studyConfig: null,
-      rawSessions: [],
+      allSessions: [],       // Source of truth for all imported data
+      filteredSessions: [],  // The data currently being viewed/analyzed
       participants: new Set(),
       metrics: {
         totalExpectedPings: 0,
         totalDelivered: 0,
         totalCompleted: 0,
         totalMissed: 0,
-        totalNoise: 0, // Speeding (<30s)
+        totalNoise: 0, 
         avgTimeMs: 0,
         avgLatencyMs: 0,
-        complianceByDay: {}, // { day1: { completed: X, missed: Y }, ... }
+        complianceByDay: {}, 
         latencyByDay: {}
       }
     },
   
-    /**
-     * Reads the FileList provided by the <input webkitdirectory>
-     */
     async ingestFiles(fileList) {
       this.resetState();
       
@@ -37,11 +35,10 @@ const DataParser = {
           reader.onload = (e) => {
             try {
               const json = JSON.parse(e.target.result);
-              // Simple heuristic to differentiate config from participant payload
               if (json.schedule && json.study) {
                 this.state.studyConfig = json;
               } else if (json.metadata || json.participantId) {
-                this.state.rawSessions.push(this.normalizeSession(json));
+                this.state.allSessions.push(this.normalizeSession(json));
               }
             } catch (err) {
               console.warn(`Could not parse ${file.name}`);
@@ -53,16 +50,16 @@ const DataParser = {
       });
   
       await Promise.all(readPromises);
-      this.calculateMetrics();
+      
+      // Initial calculation with default filters
+      this.calculateMetrics({ excludeNoise: true, day: 'all' });
       return this.state;
     },
   
-    /**
-     * Resets the internal state before a new import
-     */
     resetState() {
       this.state.studyConfig = null;
-      this.state.rawSessions = [];
+      this.state.allSessions = [];
+      this.state.filteredSessions = [];
       this.state.participants.clear();
       this.state.metrics = {
         totalExpectedPings: 0, totalDelivered: 0, totalCompleted: 0,
@@ -71,14 +68,10 @@ const DataParser = {
       };
     },
   
-    /**
-     * Ensures every payload has a predictable "Metadata Envelope"
-     * even if older/newer versions of the builder output slightly different keys.
-     */
     normalizeSession(json) {
-      const meta = json.metadata || json; // Fallback if no nested metadata
+      const meta = json.metadata || json; 
+      const payload = json.payload || {}; // Grab actual survey answers too!
       
-      // Calculate derived timestamps
       const start = new Date(meta.startedAt || meta.startTime || Date.now()).getTime();
       const end = new Date(meta.completedAt || meta.endTime || Date.now()).getTime();
       const delivered = new Date(meta.promptDeliveredAt || meta.scheduledTime || start).getTime();
@@ -92,58 +85,65 @@ const DataParser = {
         sessionType: meta.sessionType || meta.session || 'unknown',
         durationMs: durationMs > 0 ? durationMs : 0,
         latencyMs: latencyMs > 0 ? latencyMs : 0,
-        isCompleted: true, // If we have a JSON, they submitted it
-        isNoise: durationMs < 30000 // Flag as noise if completed in under 30s
+        isCompleted: true, 
+        isNoise: durationMs < 30000, // Speeding detection
+        ...payload // Spread the actual survey data into the object for CSV export
       };
     },
   
     /**
-     * Crunches the raw array into the KPIs needed for the dashboard charts
+     * Recalculates all math based on the active UI filters
      */
-    calculateMetrics() {
-      const sessions = this.state.rawSessions;
+    calculateMetrics(filters = { excludeNoise: false, day: 'all' }) {
+      let sessions = this.state.allSessions;
       
-      // Identify unique participants
-      sessions.forEach(s => this.state.participants.add(s.participantId));
+      // Identify unique participants from the WHOLE dataset (to know how many missed)
+      this.state.allSessions.forEach(s => this.state.participants.add(s.participantId));
       const pCount = this.state.participants.size || 1;
-  
-      // Calculate Expected Totals based on Config (or make a best guess)
-      let expectedPerDay = 3; 
-      let studyDays = 14;
-      
-      if (this.state.studyConfig) {
-        studyDays = parseInt(this.state.studyConfig.study?.days || 14, 10);
-        expectedPerDay = this.state.studyConfig.schedule?.windows?.length || 3;
-      } else {
-        // Best guess based on data if config is missing
-        const maxDayFound = Math.max(...sessions.map(s => s.day), 1);
-        studyDays = maxDayFound;
+
+      // 1. Apply Filters
+      if (filters.excludeNoise) {
+        sessions = sessions.filter(s => !s.isNoise);
       }
+      if (filters.day !== 'all') {
+        sessions = sessions.filter(s => s.day === parseInt(filters.day, 10));
+      }
+      this.state.filteredSessions = sessions;
   
-      this.state.metrics.totalExpectedPings = pCount * studyDays * expectedPerDay;
-      this.state.metrics.totalCompleted = sessions.length;
+      // 2. Base Expected Math
+      let expectedPerDay = this.state.studyConfig?.schedule?.windows?.length || 3; 
+      let studyDays = this.state.studyConfig?.study?.days || Math.max(...this.state.allSessions.map(s => s.day), 1);
       
-      // If we only have exported JSONs of *completed* sessions, 
-      // Missed = Expected - Completed.
+      // If viewing a single day, adjust the expected denominator
+      if (filters.day !== 'all') {
+        this.state.metrics.totalExpectedPings = pCount * expectedPerDay;
+      } else {
+        this.state.metrics.totalExpectedPings = pCount * studyDays * expectedPerDay;
+      }
+
+      this.state.metrics.totalCompleted = sessions.length;
       this.state.metrics.totalMissed = Math.max(0, this.state.metrics.totalExpectedPings - this.state.metrics.totalCompleted);
-      this.state.metrics.totalDelivered = this.state.metrics.totalExpectedPings; // Assuming perfect delivery for now
+      this.state.metrics.totalDelivered = this.state.metrics.totalExpectedPings; 
   
       let totalDuration = 0;
       let totalLatency = 0;
+      this.state.metrics.totalNoise = this.state.allSessions.filter(s => s.isNoise).length; // Noise is absolute, not filtered
+      this.state.metrics.complianceByDay = {};
+      this.state.metrics.latencyByDay = {};
   
-      // Aggregate by Day
-      for (let i = 1; i <= studyDays; i++) {
-        this.state.metrics.complianceByDay[i] = { completed: 0, missed: pCount * expectedPerDay, latencies: [] };
-      }
+      // Setup day buckets based on filter
+      const daysToTrack = filters.day !== 'all' ? [parseInt(filters.day)] : Array.from({length: studyDays}, (_, i) => i + 1);
+      daysToTrack.forEach(d => {
+        this.state.metrics.complianceByDay[d] = { completed: 0, missed: pCount * expectedPerDay, latencies: [] };
+      });
   
+      // 3. Crunch the filtered sessions
       sessions.forEach(s => {
         totalDuration += s.durationMs;
         totalLatency += s.latencyMs;
-        if (s.isNoise) this.state.metrics.totalNoise++;
   
         if (this.state.metrics.complianceByDay[s.day]) {
            this.state.metrics.complianceByDay[s.day].completed++;
-           // Deduct from assumed missed pool
            this.state.metrics.complianceByDay[s.day].missed = Math.max(0, this.state.metrics.complianceByDay[s.day].missed - 1);
            this.state.metrics.complianceByDay[s.day].latencies.push(s.latencyMs);
         }
@@ -152,13 +152,15 @@ const DataParser = {
       if (sessions.length > 0) {
         this.state.metrics.avgTimeMs = totalDuration / sessions.length;
         this.state.metrics.avgLatencyMs = totalLatency / sessions.length;
+      } else {
+        this.state.metrics.avgTimeMs = 0;
+        this.state.metrics.avgLatencyMs = 0;
       }
   
-      // Calculate Average Latency per day for the line chart
+      // Calculate Average Latency per day
       Object.keys(this.state.metrics.complianceByDay).forEach(day => {
         const lats = this.state.metrics.complianceByDay[day].latencies;
-        const avgLat = lats.length > 0 ? (lats.reduce((a,b)=>a+b,0) / lats.length) : 0;
-        this.state.metrics.latencyByDay[day] = avgLat;
+        this.state.metrics.latencyByDay[day] = lats.length > 0 ? (lats.reduce((a,b)=>a+b,0) / lats.length) : 0;
       });
     }
   };
