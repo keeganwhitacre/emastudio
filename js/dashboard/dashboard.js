@@ -25,9 +25,16 @@ const AppUI = {
     const importBtn = document.getElementById('btn-import-data');
     const fileInput = document.getElementById('folder-import-input');
     const exportBtn = document.getElementById('export-csv-btn');
+    
+    // Filters & Toggles
     const filterRapid = document.getElementById('toggle-filter-rapid');
+    const filterMissed = document.getElementById('toggle-exclude-missed');
     const filterDate = document.getElementById('filter-date');
-    const navTabs = document.querySelectorAll('.tab-btn');
+    const filterCohort = document.getElementById('filter-cohort');
+    
+    // Navigation
+    const navTabs = document.querySelectorAll('.topbar-tabs .tab-btn');
+    const segBtns = document.querySelectorAll('.seg-ctrl .seg-btn');
 
     // 1. File Import
     importBtn.addEventListener('click', () => fileInput.click());
@@ -38,7 +45,7 @@ const AppUI = {
       try {
         const data = await DataParser.ingestFiles(e.target.files);
         this.populateDateDropdown(data.allSessions);
-        this.refreshData(); // Triggers UI update
+        this.refreshData(); 
         document.getElementById('empty-state').style.display = 'none';
         this.setStatus("Synced Just Now", "badge-good");
       } catch (err) {
@@ -49,26 +56,63 @@ const AppUI = {
       fileInput.value = "";
     });
 
-    // 2. Interactive Filters
-    filterRapid.addEventListener('change', () => this.refreshData());
-    filterDate.addEventListener('change', () => this.refreshData());
+    // 2. Interactive Filters (Trigger refresh on any change)
+    [filterRapid, filterMissed, filterDate, filterCohort].forEach(el => {
+        el.addEventListener('change', () => this.refreshData());
+    });
 
-    // 3. Export CSV
-    exportBtn.addEventListener('click', () => this.exportToCSV());
+    // 3. Segmented Control (Aggregate vs Per Participant)
+    segBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelector('.seg-ctrl .seg-btn.active')?.classList.remove('active');
+            e.target.classList.add('active');
+            
+            const mode = e.target.textContent.trim();
+            if (mode === 'Per Participant') {
+                // Change dropdown to list individual IDs
+                const pList = Array.from(DataParser.state.participants).sort();
+                filterCohort.innerHTML = pList.map(p => `<option value="${p}">${p}</option>`).join('');
+            } else {
+                // Revert to Aggregate
+                filterCohort.innerHTML = `<option value="all">All Participants (n=${DataParser.state.participants.size})</option>`;
+            }
+            this.refreshData(); // Recalculate based on new dropdown state
+        });
+    });
 
-    // 4. Top Navigation Tabs (Smooth Scroll)
-    navTabs.forEach((tab, index) => {
+    // 4. Top Navigation Tabs (Smooth Scroll & Highlight)
+    navTabs.forEach((tab) => {
       tab.addEventListener('click', (e) => {
-        document.querySelector('.tab-btn.active').classList.remove('active');
+        document.querySelector('.topbar-tabs .tab-btn.active')?.classList.remove('active');
         e.target.classList.add('active');
         
-        // Scroll map based on button order
-        const targets = ['dashboard-panel', 'complianceChart', 'latencyChart', 'participant-table-body'];
-        const targetId = targets[index];
+        const mode = e.target.textContent.trim();
+        let targetId = '';
+        
+        // Map tabs to DOM element IDs
+        if (mode === 'Overview') targetId = 'dashboard-panel'; // Scrolls to top
+        if (mode === 'Compliance') targetId = 'complianceChart';
+        if (mode === 'Signals & Noise') targetId = 'latencyChart';
+        if (mode === 'Participants') targetId = 'participant-table-body';
+        
         const el = document.getElementById(targetId);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (el) {
+          // Scroll it into view
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          
+          // Flash the border of the closest card to draw the user's eye
+          const card = el.closest('.chart-card, .data-table-container, .kpi-grid');
+          if (card) {
+            card.style.transition = 'border-color 0.4s ease';
+            card.style.borderColor = 'var(--accent)';
+            setTimeout(() => card.style.borderColor = 'var(--border)', 1200);
+          }
+        }
       });
     });
+
+    // 5. Export CSV
+    exportBtn.addEventListener('click', () => this.exportToCSV());
   },
 
   setStatus(text, badgeClass) {
@@ -83,13 +127,13 @@ const AppUI = {
     // Read current UI state
     const filters = {
         excludeNoise: document.getElementById('toggle-filter-rapid').checked,
-        day: document.getElementById('filter-date').value
+        excludeMissed: document.getElementById('toggle-exclude-missed').checked,
+        day: document.getElementById('filter-date').value,
+        participant: document.getElementById('filter-cohort').value || 'all'
     };
 
     // Tell parser to recalculate
     DataParser.calculateMetrics(filters);
-    
-    // Redraw the DOM
     this.updateDashboard(DataParser.state);
   },
 
@@ -110,19 +154,16 @@ const AppUI = {
     const sessions = DataParser.state.filteredSessions;
     if (sessions.length === 0) return alert("No data available to export. Import a folder first.");
 
-    // Extract all unique keys across all JSONs (in case some sessions have different questions)
     const headerSet = new Set();
     sessions.forEach(s => Object.keys(s).forEach(k => headerSet.add(k)));
     const headers = Array.from(headerSet);
 
-    // Build CSV string
     const csvRows = [];
-    csvRows.push(headers.join(',')); // Header row
+    csvRows.push(headers.join(',')); 
 
     sessions.forEach(session => {
         const values = headers.map(header => {
             const val = session[header];
-            // Handle commas or quotes in string answers
             if (typeof val === 'string') return `"${val.replace(/"/g, '""')}"`;
             if (val === undefined || val === null) return "";
             return val;
@@ -189,10 +230,12 @@ const AppUI = {
 
   updateHeader(data) {
     const studyName = data.studyConfig?.study?.name || "Imported Study Data";
-    document.getElementById('dash-study-name').textContent = studyName;
-    document.getElementById('dash-subtitle').textContent = `Local File Analysis — ${data.participants.size} Active Participants`;
+    const cohortFilter = document.getElementById('filter-cohort').value;
     
-    document.getElementById('filter-cohort').innerHTML = `<option>All Participants (n=${data.participants.size})</option>`;
+    document.getElementById('dash-study-name').textContent = studyName;
+    document.getElementById('dash-subtitle').textContent = cohortFilter === 'all' 
+        ? `Local File Analysis — ${data.participants.size} Active Participants`
+        : `Local File Analysis — Isolating Participant ${cohortFilter}`;
     
     const studyDays = data.studyConfig?.study?.days || Object.keys(data.metrics.complianceByDay).length;
     const currentDay = Math.max(...data.allSessions.map(s => s.day), 1);
@@ -201,7 +244,6 @@ const AppUI = {
     document.getElementById('study-progress-text').textContent = `Day ${currentDay} of ${studyDays}`;
     document.getElementById('study-progress-pct').textContent = `${pct}%`;
     document.getElementById('study-progress-bar').style.width = `${pct}%`;
-    document.getElementById('study-progress-hint').textContent = "Progress based on latest uploaded participant data.";
   },
 
   updateKPIs(m) {
@@ -219,8 +261,12 @@ const AppUI = {
 
     document.getElementById('kpi-pings').textContent = m.totalDelivered;
     
-    const noisePct = m.totalCompleted === 0 ? 0 : (m.totalNoise / m.totalCompleted) * 100;
-    document.getElementById('kpi-noise').textContent = fmtPct(m.totalNoise, m.totalCompleted);
+    // Calculate noise based on the raw pre-filtered total to give an accurate "% of data that is noise"
+    const isExcludingNoise = document.getElementById('toggle-filter-rapid').checked;
+    const baseTotal = isExcludingNoise ? (m.totalCompleted + m.totalNoise) : m.totalCompleted;
+    const noisePct = baseTotal === 0 ? 0 : (m.totalNoise / baseTotal) * 100;
+    
+    document.getElementById('kpi-noise').textContent = fmtPct(m.totalNoise, baseTotal);
     this.setCardStatus('card-noise', noisePct < 5 ? 'good' : (noisePct < 15 ? 'warn' : 'danger'));
 
     document.getElementById('kpi-time').textContent = fmtMsToMinSec(m.avgTimeMs);
@@ -258,7 +304,9 @@ const AppUI = {
     this.charts.compliance.update();
 
     // 2. Disposition Doughnut
-    const valid = m.totalCompleted - m.totalNoise;
+    const isExcludingNoise = document.getElementById('toggle-filter-rapid').checked;
+    const valid = m.totalCompleted - (isExcludingNoise ? 0 : m.totalNoise);
+    
     this.charts.disposition.data = {
       labels: ['Valid Data', 'Missed', 'Speeding (Noise)'],
       datasets: [{
@@ -298,8 +346,8 @@ const AppUI = {
       pStats[s.participantId].completed++;
     });
 
-    // If filtering by Day, expected is much smaller
     const currentDayFilter = document.getElementById('filter-date').value;
+    const isExcludeMissed = document.getElementById('toggle-exclude-missed').checked;
     const expectedPerDay = data.studyConfig?.schedule?.windows?.length || 3;
     const studyDays = data.studyConfig?.study?.days || 14;
     
@@ -307,8 +355,10 @@ const AppUI = {
 
     const rows = Object.keys(pStats).map(pId => {
       const comp = pStats[pId].completed;
-      const pct = Math.round((comp / expectedPerP) * 100);
-      return { id: pId, pct: Math.min(100, pct) }; // Cap at 100% just in case of weird data
+      // If "Exclude Missed" is flipped, the expected denominator becomes exactly what they completed
+      const denominator = isExcludeMissed ? comp : expectedPerP;
+      const pct = denominator === 0 ? 0 : Math.round((comp / denominator) * 100);
+      return { id: pId, pct: Math.min(100, pct) };
     });
 
     rows.sort((a,b) => a.pct - b.pct);
