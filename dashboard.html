@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Dashboard — EMA Studio</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+/* =============================================
+   DESIGN TOKENS & LAYOUT (Inherited from EMA Studio)
+   ============================================= */
+:root {
+  --bg: #0d1117; --bg-1: #161b22; --bg-2: #21262d; --bg-3: #2d333b;
+  --border: #30363d; --border-hi: #444c56;
+  --fg: #e6edf3; --fg-2: #adbac7; --fg-3: #768390;
+  --accent: #e8716a; --accent-dim: rgba(232,113,106,0.15); --accent-hover: #f08078;
+  --green: #3fb950; --green-dim: rgba(63,185,80,0.15);
+  --yellow: #d29922; --yellow-dim: rgba(210,153,34,0.15);
+  --blue: #388bfd; --blue-dim: rgba(56,139,253,0.15);
+  --red: #f85149; --red-dim: rgba(248,81,73,0.15);
+  --font: "TX-02", "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  --radius: 6px; --radius-lg: 10px;
+  --shadow: 0 8px 24px rgba(0,0,0,0.4);
+  --transition: 0.15s ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; width: 100%; font-family: var(--font); background: var(--bg); color: var(--fg); overflow: hidden; font-size: 14px; line-height: 1.5; }
+
+/* Layout Shell */
+#app { display: grid; grid-template-rows: 52px 1fr; grid-template-columns: 280px 1fr; height: 100vh; overflow: hidden; }
+
+/* Topbar */
+#topbar { grid-column: 1 / -1; display: flex; align-items: center; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--bg-1); gap: 16px; z-index: 10; height: 52px; }
+.topbar-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; letter-spacing: 0.06em; color: var(--fg); text-transform: uppercase; flex-shrink: 0; text-decoration: none;}
+.topbar-logo { width: 26px; height: 26px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+.topbar-logo svg { width: 15px; height: 15px; }
+.topbar-back { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius); background: transparent; border: 1px solid var(--border); color: var(--fg-3); cursor: pointer; transition: all var(--transition); flex-shrink: 0; text-decoration: none; }
+.topbar-back:hover { color: var(--fg); border-color: var(--border-hi); background: var(--bg-2); }
+.topbar-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+.topbar-tabs { display: flex; gap: 2px; flex: 1; }
+.tab-btn { padding: 5px 13px; border: none; background: transparent; color: var(--fg-3); font-family: var(--font); font-size: 12px; font-weight: 500; border-radius: var(--radius); cursor: pointer; transition: color var(--transition), background var(--transition); letter-spacing: 0.02em; }
+.tab-btn:hover { color: var(--fg-2); background: var(--bg-2); }
+.tab-btn.active { color: var(--fg); background: var(--bg-3); }
+
+/* Buttons */
+.topbar-actions { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+.btn-ghost { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: var(--fg-3); font-family: var(--font); font-size: 11px; font-weight: 500; cursor: pointer; transition: all var(--transition); white-space: nowrap; letter-spacing: 0.02em; }
+.btn-ghost:hover { color: var(--fg); border-color: var(--border-hi); background: var(--bg-2); }
+.btn-ghost svg { width: 12px; height: 12px; flex-shrink: 0; }
+.btn-export { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border: none; border-radius: var(--radius); background: var(--accent); color: #fff; font-family: var(--font); font-size: 11px; font-weight: 600; cursor: pointer; transition: background var(--transition); letter-spacing: 0.03em; white-space: nowrap; }
+.btn-export:hover { background: var(--accent-hover); }
+
+/* Sidebar (Left Panel) */
+#sidebar-panel { border-right: 1px solid var(--border); overflow-y: auto; overflow-x: hidden; background: var(--bg-1); padding: 20px; display: flex; flex-direction: column; gap: 24px; }
+.section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-3); margin-bottom: 12px; display: block; }
+.field-group { display: flex; flex-direction: column; gap: 6px; }
+.field-label { font-size: 12px; font-weight: 500; color: var(--fg-2); }
+.field-hint { font-size: 11px; color: var(--fg-3); line-height: 1.5; }
+input[type="text"], input[type="date"], select { width: 100%; padding: 7px 10px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-family: var(--font); font-size: 13px; outline: none; transition: border-color var(--transition); }
+input:focus, select:focus { border-color: var(--accent); }
+.divider { height: 1px; background: var(--border); }
+
+/* Progress Bar */
+.progress-container { width: 100%; height: 8px; background: var(--bg-3); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+.progress-fill { height: 100%; background: var(--accent); width: 0%; border-radius: 4px; transition: width 0.5s ease; }
+
+/* Toggles */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.toggle-label { font-size: 12px; color: var(--fg-2); }
+.toggle { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-track { position: absolute; inset: 0; background: var(--bg-3); border: 1px solid var(--border); border-radius: 9px; cursor: pointer; transition: background var(--transition), border-color var(--transition); }
+.toggle input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
+.toggle-track::after { content: ''; position: absolute; top: 1px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--fg-3); transition: transform var(--transition), background var(--transition); }
+.toggle input:checked + .toggle-track::after { transform: translateX(14px); background: #fff; }
+
+/* Dashboard Content Area */
+#dashboard-panel { background: var(--bg); overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+.dashboard-header { display: flex; justify-content: space-between; align-items: flex-end; }
+.dashboard-title { font-size: 20px; font-weight: 600; color: var(--fg); letter-spacing: -0.02em; }
+.dashboard-subtitle { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
+.seg-ctrl { display: flex; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 3px; gap: 3px; }
+.seg-btn { flex: 1; padding: 5px 12px; border: none; border-radius: 4px; background: transparent; color: var(--fg-3); font-family: var(--font); font-size: 11px; font-weight: 600; cursor: pointer; transition: all var(--transition); letter-spacing: 0.02em; }
+.seg-btn.active { background: var(--bg-3); color: var(--fg); }
+
+/* KPI Grid */
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.kpi-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+.kpi-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--bg-3); transition: background 0.3s; }
+.kpi-card.good::before { background: var(--green); }
+.kpi-card.warn::before { background: var(--yellow); }
+.kpi-card.danger::before { background: var(--accent); }
+.kpi-title { font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.kpi-value { font-size: 28px; font-weight: 700; color: var(--fg); margin: 8px 0 4px; font-family: var(--font-mono); }
+.kpi-trend { font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 4px; }
+.trend-up { color: var(--green); }
+.trend-down { color: var(--accent); }
+.trend-neutral { color: var(--fg-3); }
+
+/* Chart Layouts */
+.chart-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+.chart-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; display: flex; flex-direction: column; }
+.chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.chart-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+.chart-container { position: relative; height: 240px; width: 100%; }
+.chart-container-sm { height: 180px; }
+
+/* Tables */
+.data-table-container { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; display: flex; flex-direction: column;}
+.table-header-row { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid var(--border); }
+.table-wrap { overflow-y: auto; flex: 1; max-height: 180px;}
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th { padding: 12px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); background: var(--bg-2); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2;}
+td { padding: 12px 16px; font-size: 13px; color: var(--fg-2); border-bottom: 1px solid var(--border); font-family: var(--font-mono); }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
+
+/* Empty State Overlay */
+#empty-state { position: absolute; inset: 0; background: rgba(13,17,23,0.85); backdrop-filter: blur(8px); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; }
+.empty-box { background: var(--bg-1); border: 1px dashed var(--border-hi); border-radius: var(--radius-lg); padding: 40px; text-align: center; max-width: 400px; }
+.empty-title { font-size: 18px; font-weight: 600; color: var(--fg); margin-bottom: 8px; }
+.empty-desc { font-size: 13px; color: var(--fg-3); line-height: 1.5; margin-bottom: 24px; }
+
+/* Badges */
+.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.badge-good { background: var(--green-dim); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+.badge-warn { background: var(--yellow-dim); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); }
+.badge-danger { background: var(--red-dim); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+.badge-neutral { background: var(--bg-3); color: var(--fg-3); border: 1px solid var(--border-hi); }
+
+/* Custom Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ========== TOP BAR ========== -->
+  <header id="topbar">
+    <a href="builder.html" class="topbar-back" title="Back to Builder">
+      <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"/></svg>
+    </a>
+    <a href="index.html" class="topbar-brand">
+      <div class="topbar-logo">
+        <svg viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="6.5" cy="6.5" r="2.5" fill="white"/>
+          <path d="M6.5 1v1.5M6.5 10.5V12M12 6.5h-1.5M2.5 6.5H1M10.3 2.7l-1 1M3.7 9.3l-1 1M10.3 10.3l-1-1M3.7 3.7l-1-1" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      EMA Studio
+    </a>
+    <div class="topbar-sep"></div>
+    <nav class="topbar-tabs">
+      <button class="tab-btn active">Overview</button>
+      <button class="tab-btn">Compliance</button>
+      <button class="tab-btn">Signals & Noise</button>
+      <button class="tab-btn">Participants</button>
+    </nav>
+    <div class="topbar-actions">
+      <span class="badge badge-neutral" id="status-badge" style="margin-right:8px;font-family:var(--font);font-size:10px;">Waiting for data</span>
+      
+      <!-- Hidden Folder Input -->
+      <input type="file" id="folder-import-input" webkitdirectory directory multiple style="display:none;">
+      
+      <button class="btn-ghost" id="btn-import-data">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75zM7.25 7.689V2a.75.75 0 00-1.5 0v5.689L3.53 5.469a.75.75 0 00-1.06 1.06l3.25 3.25a.75.75 0 001.06 0l3.25-3.25a.75.75 0 00-1.06-1.06L7.25 7.689z"/></svg>
+        Import Folder
+      </button>
+      <button class="btn-export" id="export-csv-btn">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75zM7.25 7.689L5.03 5.469a.75.75 0 00-1.06 1.06l3.25 3.25a.75.75 0 001.06 0l3.25-3.25a.75.75 0 00-1.06-1.06L8.75 7.689V2a.75.75 0 00-1.5 0v5.689z"/></svg>
+        Export CSV
+      </button>
+    </div>
+  </header>
+
+  <!-- ========== SIDEBAR CONTROLS ========== -->
+  <aside id="sidebar-panel">
+    <div>
+      <span class="section-title">Study Progress</span>
+      <div class="field-group">
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--fg-2);">
+          <span id="study-progress-text">Day 0 of 0</span>
+          <span id="study-progress-pct">0%</span>
+        </div>
+        <div class="progress-container">
+          <div class="progress-fill" id="study-progress-bar"></div>
+        </div>
+        <div class="field-hint" style="margin-top:6px;" id="study-progress-hint">Import a study folder to see progress.</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div>
+      <span class="section-title">Data Filters</span>
+      <div class="field-group" style="margin-bottom:12px;">
+        <label class="field-label">Date Range</label>
+        <select id="filter-date">
+          <option value="all">All available data</option>
+        </select>
+      </div>
+      
+      <div class="field-group" style="margin-bottom:12px;">
+        <label class="field-label">Participant Cohort</label>
+        <select id="filter-cohort">
+          <option value="all">All Participants (n=0)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div>
+      <span class="section-title">Quality Controls (Recalculates charts)</span>
+      <div class="toggle-row">
+        <span class="toggle-label">Exclude missed prompts</span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-exclude-missed">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Filter rapid responders (&lt;30s)</span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-filter-rapid" checked>
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ========== DASHBOARD CONTENT ========== -->
+  <main id="dashboard-panel" style="position: relative;">
+    
+    <!-- Empty State Overlay (Hidden once data is loaded) -->
+    <div id="empty-state">
+      <div class="empty-box">
+        <div class="empty-title">Ready for Analysis</div>
+        <div class="empty-desc">To begin, select the folder containing your EMA study's <code>config.json</code> and participant data exports. Data is processed locally and never leaves your browser.</div>
+        <button class="btn-export" style="padding: 10px 20px; font-size: 13px;" onclick="document.getElementById('folder-import-input').click()">
+          Browse Folder...
+        </button>
+      </div>
+    </div>
+
+    <div class="dashboard-header">
+      <div>
+        <h1 class="dashboard-title" id="dash-study-name">Study Dashboard</h1>
+        <div class="dashboard-subtitle" id="dash-subtitle">No data loaded</div>
+      </div>
+      <div class="seg-ctrl">
+        <button class="seg-btn active">Aggregate</button>
+        <button class="seg-btn">Per Participant</button>
+      </div>
+    </div>
+
+    <!-- Top KPIs -->
+    <div class="kpi-grid">
+      <div class="kpi-card" id="card-compliance">
+        <span class="kpi-title">Avg. Compliance Rate</span>
+        <span class="kpi-value" id="kpi-compliance">--%</span>
+        <div class="kpi-trend trend-neutral" id="trend-compliance">
+          Awaiting data
+        </div>
+      </div>
+      <div class="kpi-card" id="card-pings">
+        <span class="kpi-title">Total Pings Delivered</span>
+        <span class="kpi-value" id="kpi-pings">--</span>
+        <div class="kpi-trend trend-neutral" id="trend-pings">
+          Awaiting data
+        </div>
+      </div>
+      <div class="kpi-card" id="card-noise">
+        <span class="kpi-title">Signal Noise / Invalid</span>
+        <span class="kpi-value" id="kpi-noise">--%</span>
+        <div class="kpi-trend trend-neutral" id="trend-noise">
+          Speeding or partials
+        </div>
+      </div>
+      <div class="kpi-card" id="card-time">
+        <span class="kpi-title">Avg. Time to Complete</span>
+        <span class="kpi-value" id="kpi-time">--m --s</span>
+        <div class="kpi-trend trend-neutral" id="trend-time">
+          Across all tasks
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Row 1 -->
+    <div class="chart-grid">
+      <!-- Compliance Over Time -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">Daily Compliance Trend</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="complianceChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Response Breakdown -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">Ping Dispositions</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="dispositionChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Row 2 & Tables -->
+    <div class="chart-grid" style="grid-template-columns: 1fr 1fr;">
+      
+      <!-- Noise/Latency Scatter -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">Signal Latency (Time to open ping)</span>
+          <span class="badge badge-neutral" id="latency-median-badge">Med: --</span>
+        </div>
+        <div class="chart-container chart-container-sm">
+          <canvas id="latencyChart"></canvas>
+        </div>
+      </div>
+
+      <!-- At Risk Participants Table -->
+      <div class="data-table-container">
+        <div class="table-header-row">
+          <span class="chart-title">Participant Watchlist</span>
+          <button class="btn-ghost" style="padding:2px 8px; font-size:10px;">View All</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Compliance</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="participant-table-body">
+              <tr>
+                <td colspan="3" style="text-align: center; color: var(--fg-3);">No data loaded</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+</div>
+
+<!-- Scripts -->
+<script src="js/dashboard/parser.js"></script>
+<script src="js/dashboard/dashboard.js"></script>
+
+</body>
+</html>
