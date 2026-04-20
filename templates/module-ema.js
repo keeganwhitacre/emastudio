@@ -1,33 +1,37 @@
 // ==========================================================
-// EMA PAGINATION ENGINE — v1.2
+// EMA PAGINATION ENGINE — v1.3
 // ==========================================================
 //
-// Changes from v1.1:
-//   - EMA.start() now receives a phase token ("pre_w1", "post_w3")
-//     instead of a raw session id string. It parses the token to
-//     extract the windowId and block direction.
-//   - buildPages(windowId, blockDir) filters questions by:
-//       (1) q.windows — null means all windows; explicit array checked
-//       (2) q.block   — "pre"/"both" pass for pre-phases;
-//                       "post"/"both" pass for post-phases
-//   - Greeting is now set by study-base.js before EMA.start() is
-//     called, so module-ema.js no longer touches the greeting element.
-//   - The "Submit / Next" button label logic now checks whether the
-//     current phase is the last in sessionData.phases instead of
-//     checking config.tasks for 'pat' specifically.
+// Changes from v1.2:
+//
+// DATA CONTRACT:
+//   - emaResponses.startedAt — ISO timestamp when the phase first rendered
+//   - emaResponses.submittedAt — ISO timestamp when the phase was submitted
+//   - Each entry in emaResponses.responses is now an object:
+//       { value, respondedAt }
+//     instead of the bare value. This enables per-question response-latency
+//     analyses. evalCond() in study-base.js handles both shapes for
+//     backward compatibility with imported data, but new writes always
+//     use the object shape.
+//
+// ROUTER COMPAT:
+//   - The legacy "plain window id" phase token path is gone. v1.3 always
+//     sends "pre_<wid>" or "post_<wid>". If you see an unprefixed token,
+//     it's a bug in the router, not input to tolerate here.
+//
+// GREETING:
+//   - study-base.js sets the greeting before calling EMA.start() — this
+//     module doesn't touch the element. Keeps one responsibility per file.
 //
 // ==========================================================
 
 const EMA = (function() {
-  let emaPages        = [];
+  let emaPages         = [];
   let currentPageIndex = 0;
-  let emaResponses    = { type: 'ema_response', responses: {} };
+  let emaResponses     = null;
 
   // -----------------------------------------------------------------------
   // buildPages(windowId, blockDir)
-  //
-  // windowId  — the schedule window id (e.g. "w1") or null for unknown
-  // blockDir  — "pre" or "post" — which block we are rendering
   //
   // Filtering logic:
   //   Window filter: q.windows === null  → appears in all windows
@@ -35,8 +39,7 @@ const EMA = (function() {
   //   Block filter:  blockDir "pre"  → q.block is "pre" or "both"
   //                  blockDir "post" → q.block is "post" or "both"
   //
-  // Page breaks are preserved as separators only if questions on both
-  // sides survive the filter — orphan page breaks are dropped.
+  // Orphan page breaks (with nothing surviving on one side) are dropped.
   // -----------------------------------------------------------------------
   function buildPages(windowId, blockDir) {
     emaPages = [];
@@ -51,16 +54,14 @@ const EMA = (function() {
         return;
       }
 
-      // Window filter
       const windowMatch = q.windows === null
         || q.windows === undefined
         || (windowId && q.windows.includes(windowId));
 
-      // Block filter
       const block = q.block || 'both';
       const blockMatch = blockDir === 'post'
         ? (block === 'post' || block === 'both')
-        : (block === 'pre'  || block === 'both');  // default pre for unknown
+        : (block === 'pre'  || block === 'both');
 
       if (windowMatch && blockMatch) {
         currentBlock.push(q);
@@ -71,23 +72,45 @@ const EMA = (function() {
   }
 
   // -----------------------------------------------------------------------
-  // renderCurrentPage — unchanged from v1.1 except the "Submit/Next" label
+  // Record a response with timestamp. This wraps the raw value in the
+  // v1.3 { value, respondedAt } envelope.
+  // -----------------------------------------------------------------------
+  function recordResponse(qid, value) {
+    emaResponses.responses[qid] = {
+      value: value,
+      respondedAt: new Date().toISOString()
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // Get the bare value for a qid (for skip-logic evaluation during render).
+  // -----------------------------------------------------------------------
+  function valueOf(qid) {
+    const rec = emaResponses.responses[qid];
+    if (rec === undefined) return undefined;
+    return (rec && typeof rec === 'object' && 'value' in rec) ? rec.value : rec;
+  }
+
+  // -----------------------------------------------------------------------
+  // renderCurrentPage — builds DOM for the current page, advancing through
+  // any pages whose questions all fail skip-logic.
   // -----------------------------------------------------------------------
   function renderCurrentPage() {
     const container = document.getElementById('ema-single-container');
     const nextBtn   = document.getElementById('ema-next-btn');
 
-    // Fast-forward past pages where all questions fail skip-logic
     let visibleQuestions = [];
     while (currentPageIndex < emaPages.length) {
-      visibleQuestions = emaPages[currentPageIndex].filter(
-        q => evalCond(q.condition, emaResponses.responses)
-      );
+      visibleQuestions = emaPages[currentPageIndex].filter(q => {
+        // Rewrap responses in the shape evalCond expects
+        return evalCond(q.condition, emaResponses.responses);
+      });
       if (visibleQuestions.length > 0) break;
       currentPageIndex++;
     }
 
     if (currentPageIndex >= emaPages.length) {
+      emaResponses.submittedAt = new Date().toISOString();
       sessionData.data.push(emaResponses);
       advancePhase();
       return;
@@ -97,88 +120,111 @@ const EMA = (function() {
     document.getElementById('ema-progress-fill').style.width = pct + '%';
     container.innerHTML = '';
 
+    // Tracks whether every required question on this page has been answered.
+    function checkSubmit() {
+      const allAnswered = visibleQuestions.every(q => {
+        if (!q.required) return true;
+        const v = valueOf(q.id);
+        if (v === undefined || v === null || v === '') return false;
+        if (Array.isArray(v) && v.length === 0) return false;
+        return true;
+      });
+      nextBtn.disabled = !allAnswered;
+    }
+
     visibleQuestions.forEach(q => {
       const wrapper = document.createElement('div');
       wrapper.style.marginBottom = '48px';
 
       const qTitle = document.createElement('div');
       qTitle.className = 'ema-question';
-      qTitle.textContent = q.text;
+      qTitle.textContent = q.text || '';
       wrapper.appendChild(qTitle);
 
-      const checkSubmit = () => {
-        nextBtn.disabled = !visibleQuestions.every(q =>
-          !q.required || (emaResponses.responses[q.id] !== undefined && emaResponses.responses[q.id] !== '')
-        );
-      };
-
       if (q.type === 'slider') {
-        const mid = ((q.min || 0) + (q.max || 100)) / 2;
-        if (emaResponses.responses[q.id] === undefined) emaResponses.responses[q.id] = mid;
-
-        const grp     = document.createElement('div'); grp.className = 'slider-group';
-        const valDisp = document.createElement('div'); valDisp.className = 'slider-val-display';
-        valDisp.textContent = emaResponses.responses[q.id] + (q.unit || '');
-
-        const inp = document.createElement('input');
-        inp.type = 'range'; inp.className = 'range-slider';
-        inp.min = q.min; inp.max = q.max; inp.step = q.step || 1;
-        inp.value = emaResponses.responses[q.id];
-
-        inp.addEventListener('input', () => {
-          emaResponses.responses[q.id] = Number(inp.value);
-          valDisp.textContent = inp.value + (q.unit || '');
+        const grp = document.createElement('div');
+        grp.className = 'slider-group';
+        const cur = valueOf(q.id);
+        const defaultVal = (cur !== undefined && cur !== null && cur !== '')
+          ? cur
+          : Math.round((Number(q.min) + Number(q.max)) / 2);
+        grp.innerHTML = `
+          <div class="slider-val-display" data-for="${q.id}">${defaultVal}${q.unit ? ' ' + q.unit : ''}</div>
+          <input type="range" class="range-slider" data-qid="${q.id}"
+                 min="${q.min}" max="${q.max}" step="${q.step || 1}" value="${defaultVal}">
+          <div class="slider-labels">
+            <span>${(q.anchors || ['',''])[0] || ''}</span>
+            <span>${(q.anchors || ['',''])[1] || ''}</span>
+          </div>
+        `;
+        const slider = grp.querySelector('input');
+        const disp   = grp.querySelector('.slider-val-display');
+        // Slider needs an explicit interaction before we count it as answered
+        let touched = cur !== undefined && cur !== null && cur !== '';
+        slider.addEventListener('input', () => {
+          touched = true;
+          const v = Number(slider.value);
+          disp.textContent = v + (q.unit ? ' ' + q.unit : '');
+          recordResponse(q.id, v);
           checkSubmit();
         });
-
-        const labels = document.createElement('div'); labels.className = 'slider-labels';
-        labels.innerHTML = `<span>${q.anchors[0] || ''}</span><span>${q.anchors[1] || ''}</span>`;
-        grp.append(valDisp, inp, labels);
+        // If pre-filled (resumption case), record it
+        if (touched && (cur !== valueOf(q.id))) {
+          recordResponse(q.id, Number(defaultVal));
+        }
         wrapper.appendChild(grp);
-      }
 
-      else if (q.type === 'choice') {
-        const grp = document.createElement('div'); grp.className = 'bubble-group';
-        q.options.forEach(opt => {
-          const b = document.createElement('div'); b.className = 'bubble'; b.textContent = opt;
-          if (emaResponses.responses[q.id] === opt) b.classList.add('selected');
-          b.onclick = () => {
-            grp.querySelectorAll('.bubble').forEach(x => x.classList.remove('selected'));
-            b.classList.add('selected');
-            emaResponses.responses[q.id] = opt;
+      } else if (q.type === 'choice') {
+        const grp = document.createElement('div');
+        grp.className = 'choice-group';
+        (q.options || []).forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = 'choice-btn';
+          btn.textContent = opt;
+          btn.dataset.val = opt;
+          btn.addEventListener('click', () => {
+            grp.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            recordResponse(q.id, opt);
             checkSubmit();
-          };
-          grp.appendChild(b);
+          });
+          if (valueOf(q.id) === opt) btn.classList.add('selected');
+          grp.appendChild(btn);
         });
         wrapper.appendChild(grp);
-      }
 
-      else if (q.type === 'checkbox') {
-        if (!Array.isArray(emaResponses.responses[q.id])) emaResponses.responses[q.id] = [];
-        const grp = document.createElement('div'); grp.className = 'bubble-group';
-        q.options.forEach(opt => {
-          const b = document.createElement('div'); b.className = 'bubble'; b.textContent = opt;
-          if (emaResponses.responses[q.id].includes(opt)) b.classList.add('selected');
-          b.onclick = () => {
-            b.classList.toggle('selected');
-            const arr = emaResponses.responses[q.id];
-            if (b.classList.contains('selected')) { if (!arr.includes(opt)) arr.push(opt); }
-            else { const i = arr.indexOf(opt); if (i > -1) arr.splice(i, 1); }
+      } else if (q.type === 'checkbox') {
+        const grp = document.createElement('div');
+        grp.className = 'choice-group';
+        const selected = new Set(Array.isArray(valueOf(q.id)) ? valueOf(q.id) : []);
+        (q.options || []).forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = 'choice-btn';
+          btn.textContent = opt;
+          btn.dataset.val = opt;
+          if (selected.has(opt)) btn.classList.add('selected');
+          btn.addEventListener('click', () => {
+            if (selected.has(opt)) { selected.delete(opt); btn.classList.remove('selected'); }
+            else { selected.add(opt); btn.classList.add('selected'); }
+            recordResponse(q.id, Array.from(selected));
             checkSubmit();
-          };
-          grp.appendChild(b);
+          });
+          grp.appendChild(btn);
         });
         wrapper.appendChild(grp);
-      }
 
-      else if (q.type === 'text' || q.type === 'numeric') {
-        const grp = document.createElement('div'); grp.className = 'input-group';
+      } else {
+        // Generic text / numeric input
+        const grp = document.createElement('div');
+        grp.className = 'text-group';
         const inp = document.createElement('input');
-        inp.type = q.type === 'numeric' ? 'number' : 'text';
-        inp.placeholder = 'Tap to answer';
-        if (emaResponses.responses[q.id] !== undefined) inp.value = emaResponses.responses[q.id];
+        inp.type = (q.type === 'numeric') ? 'number' : 'text';
+        inp.className = 'text-input';
+        const cur = valueOf(q.id);
+        if (cur !== undefined && cur !== null) inp.value = cur;
         inp.addEventListener('input', () => {
-          emaResponses.responses[q.id] = q.type === 'numeric' ? Number(inp.value) : inp.value;
+          const v = (q.type === 'numeric' && inp.value !== '') ? Number(inp.value) : inp.value;
+          recordResponse(q.id, v);
           checkSubmit();
         });
         grp.appendChild(inp);
@@ -186,10 +232,11 @@ const EMA = (function() {
       }
 
       container.appendChild(wrapper);
-      checkSubmit();
     });
 
-    // "Submit" on last page of last EMA phase; "Next" otherwise
+    checkSubmit();
+
+    // Button label: "Submit" on last page of last phase, "Next" otherwise.
     const isLastPage  = currentPageIndex === emaPages.length - 1;
     const isLastPhase = sessionData.currentPhase === sessionData.phases.length - 1;
     nextBtn.textContent = (isLastPage && isLastPhase) ? 'Submit Check-In' : 'Next';
@@ -210,37 +257,43 @@ const EMA = (function() {
   // Public API
   // -----------------------------------------------------------------------
   return {
-    // phaseToken — new format: "pre_w1" | "post_w3"
-    //              old format: "w1" | "w2" (plain window id, treated as pre)
+    // phaseToken must be "pre_<wid>" or "post_<wid>". The v1.3 router
+    // never emits bare window ids. If you're calling this from new code,
+    // use the prefixed form.
     start(phaseToken) {
-      // Parse token — support both new "pre_w1" format and legacy "w1" format.
-      // The legacy format comes from study-base.js in the repo which still
-      // builds phases as [sessionId] (e.g. ["w1"]) for ema_only sessions.
-      // We detect new format by checking if token starts with "pre_" or "post_".
-      let blockDir, windowId;
-      if (phaseToken.startsWith('pre_') || phaseToken.startsWith('post_')) {
-        const underIdx = phaseToken.indexOf('_');
-        blockDir  = phaseToken.slice(0, underIdx);          // "pre" or "post"
-        windowId  = phaseToken.slice(underIdx + 1);         // "w1", "w3", etc.
-      } else {
-        // Legacy format — plain window id, always pre-block
+      let blockDir = 'pre';
+      let windowId = null;
+
+      if (phaseToken.startsWith('pre_')) {
         blockDir = 'pre';
-        windowId = phaseToken || null;
+        windowId = phaseToken.slice(4);
+      } else if (phaseToken.startsWith('post_')) {
+        blockDir = 'post';
+        windowId = phaseToken.slice(5);
+      } else {
+        // Legacy — should not occur from v1.3 router but we tolerate it
+        // to keep imports of older session data rendering in preview.
+        console.warn('EMA.start received unprefixed phase token:', phaseToken);
+        windowId = phaseToken;
       }
 
       emaResponses = {
-        type:     'ema_response',
-        phase:    phaseToken,
-        windowId: windowId,
-        block:    blockDir,
-        responses: {}
+        type:        'ema_response',
+        phase:       phaseToken,
+        windowId:    windowId,
+        block:       blockDir,
+        startedAt:   new Date().toISOString(),
+        submittedAt: null,
+        responses:   {}
       };
 
       buildPages(windowId, blockDir);
       currentPageIndex = 0;
 
-      // If no questions survive filtering, skip this phase entirely
       if (emaPages.length === 0) {
+        // Nothing to ask — mark submitted_at = started_at and move on
+        emaResponses.submittedAt = emaResponses.startedAt;
+        sessionData.data.push(emaResponses);
         advancePhase();
         return;
       }

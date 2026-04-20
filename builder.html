@@ -299,15 +299,16 @@
       <div class="modal-title">Export Study</div>
       <button class="modal-close" id="modal-close-btn">✕</button>
     </div>
-    <div class="modal-subtitle">Both options are fully self-contained — no server required for the participant-facing app.</div>
-    <div class="export-option" id="export-two-file">
-      <div class="export-option-title">Two-file export <span class="badge badge-muted" style="margin-left:6px">Recommended</span></div>
-      <div class="export-option-desc">Downloads <code>index.html</code> + <code>config.json</code> as a zip. The HTML loads config at runtime — updating study parameters means replacing only config.json without re-exporting the HTML.</div>
-    </div>
+    <div class="modal-subtitle">All options are fully self-contained — no server required for the participant-facing app.</div>
     <div class="export-option" id="export-single-file">
-      <div class="export-option-title">Single-file export</div>
-      <div class="export-option-desc">Config baked inline as a <code>&lt;script&gt;</code> block. One file to deploy or share directly. Use when distribution simplicity outweighs updateability.</div>
-    </div>
+        <div class="export-option-title">Single HTML file</div>
+        <div class="export-option-desc">One self-contained file. Easiest to share via email or a quick upload. Updating the study means re-exporting.</div>
+      </div>
+
+      <div class="export-option" id="export-zip">
+        <div class="export-option-title">Static-hosting bundle <span class="badge badge-muted" style="margin-left:6px">Recommended</span></div>
+        <div class="export-option-desc">Zip containing <code>index.html</code>, <code>config.json</code>, <code>css/</code>, and <code>js/</code>. Drop into GitHub Pages or any static host. Edit <code>config.json</code> directly to change questions or schedule — no re-export needed.</div>
+      </div>
   </div>
 </div>
 

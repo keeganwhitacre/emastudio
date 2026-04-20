@@ -25,13 +25,13 @@ const OnboardingSession = (function() {
 
     nextBtn.onclick = () => {
       sessionData.data.push({ type: "consent", agreed: true, initials: initials.value.trim().toUpperCase(), timestamp: new Date().toISOString() });
-      
-      // Dynamic routing based on schedule preference toggle
+
       if (config.onboarding.ask_schedule !== false) {
         show("screen-ob-schedule");
+      } else if (config.modules?.epat && window.ePATCore) {
+        show("screen-ob-device");
       } else {
-        if (config.tasks.includes('pat') && window.ePATCore) show("screen-ob-device");
-        else show("screen-ob-complete");
+        show("screen-ob-complete");
       }
     };
   }
@@ -49,7 +49,7 @@ const OnboardingSession = (function() {
           evening:   { start: document.getElementById("ob-ev-start").value, end: document.getElementById("ob-ev-end").value }
         }
       });
-      if (config.tasks.includes('pat') && window.ePATCore) {
+      if (config.modules?.epat && window.ePATCore) {
         show("screen-ob-device");
       } else {
         show("screen-ob-complete");
@@ -295,10 +295,12 @@ const OnboardingSession = (function() {
     };
   }
 
+
+
   return {
     start() {
       initConsent(); initSchedule(); initDevice(); initTraining();
-      document.getElementById("ob-complete-pat").onclick = () => {
+      document.getElementById("ob-complete").onclick = () => {
         sessionData.type = "pat_only"; sessionData.phases = ['pat'];
         sessionData.currentPhase = 0; runNextPhase();
       };

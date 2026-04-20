@@ -1,8 +1,13 @@
 function schedulePreview() {
-  clearTimeout(previewDebounceTimer);
-  previewDebounceTimer = setTimeout(renderPreview, 600);
-  document.getElementById('save-status').textContent = 'Unsaved changes';
-}
+    clearTimeout(previewDebounceTimer);
+    previewDebounceTimer = setTimeout(renderPreview, 600);
+    const status = document.getElementById('save-status');
+    if (status) status.textContent = 'Unsaved changes';
+    // Tell storage to persist shortly after the preview updates.
+    if (typeof StorageManager !== 'undefined' && StorageManager.debouncedSave) {
+      StorageManager.debouncedSave();
+    }
+  }
 
 function renderPreviewTabs() {
   const container = document.getElementById('preview-session-tabs');

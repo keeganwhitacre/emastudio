@@ -1,6 +1,24 @@
 "use strict";
 
-const SCHEMA_VERSION = "1.2.0";
+// ---------------------------------------------------------------------------
+// EMA Studio — state.js
+// Schema v1.3.0
+//
+// Changes from v1.2.0:
+//   - SCHEMA_VERSION bumped to 1.3.0
+//   - buildConfig() no longer emits the legacy `cfg.tasks` array. The runtime
+//     now reads `config.modules` directly (keyed by module id), so there's no
+//     further need for a compat shim. See templates/study-base.js v1.3.
+//   - Kept the `pat`-alias emission REMOVED. Module settings live only under
+//     `config.modules.epat`. If you're upgrading a deployment from v1.2, you
+//     MUST re-export the study HTML — old exports reading `config.pat` will
+//     no longer find their settings (but they were being silently ignored
+//     anyway, so this just makes the break explicit rather than silent).
+//   - output_format default is now 'csv' per the v1.3 default. Researchers
+//     who want the nested JSON can still opt in via the Study tab toggle.
+// ---------------------------------------------------------------------------
+
+const SCHEMA_VERSION = "1.3.0";
 
 let state = {
   study: {
@@ -8,7 +26,7 @@ let state = {
     institution: "",
     theme: "oled", // "oled", "dark", or "light"
     accent_color: "#e8716a",
-    output_format: "json",
+    output_format: "csv", // "csv" (long-format EMA responses) or "json" (full nested session)
     greetings: { w1: "Good Morning", w2: "Check-In", w3: "Good Evening" }
   },
 
@@ -22,15 +40,18 @@ let state = {
   // MODULE REGISTRY
   // Each entry describes one pluggable task module.
   // Fields:
-  //   id       — machine key, used in window phases + config output
+  //   id       — machine key, used in window.phases.task + config.modules.<id>
   //   label    — display name in the Tasks tab
   //   desc     — one-line description shown on the card
   //   badge    — optional pill text (e.g. "Beta")
   //   enabled  — whether this module is active in the study
   //   settings — module-specific config (typed freely per module)
   //
-  // To add a new module (Stroop, IAT, etc.) in the future:
-  // just push a new object here — the Tasks tab renders from this array.
+  // To add a new module (Stroop, IAT, etc.):
+  //   1. Push a new object into this array.
+  //   2. Add a SETTINGS_RENDERERS entry in js/tabs/tasks.js for its settings UI.
+  //   3. Create templates/module-<id>.js with a public .startFrom(sessionId) hook.
+  //   4. Wire it into js/export.js templates + study-base.js runNextPhase switch.
   // ------------------------------------------------------------
   modules: [
     {
@@ -49,8 +70,7 @@ let state = {
         body_map: true
       }
     }
-    // Future modules go here, e.g.:
-    // { id: "stroop", label: "Stroop Task", desc: "...", badge: null, enabled: false, settings: { ... } }
+    // Future modules go here.
   ],
 
   ema: {
@@ -67,10 +87,9 @@ let state = {
         {
           id: "w1", label: "Morning",   start: "08:00", end: "10:00",
           // phases describes the ordered sequence for this window:
-          //   pre  — EMA block shown before the task (null = disabled)
-          //   task — module id to run, or null for EMA-only
-          //   post — EMA block shown after the task (null = disabled)
-          // "pre" and "post" act as boolean toggles when task is null.
+          //   pre  — boolean; show EMA block before the task
+          //   task — module id string (e.g. "epat") or null for EMA-only
+          //   post — boolean; show EMA block after the task (no-op if task is null)
           phases: { pre: true, task: null, post: false }
         },
         {
@@ -119,13 +138,17 @@ function escH(str) {
 // buildConfig — serialises state into the config.json schema consumed by
 // study-base.js at runtime.
 //
-// Key decisions:
-//   - modules: only enabled modules are emitted, each under their own id key
-//     so study-base.js can do `if (config.epat)` rather than searching arrays.
-//   - ema.questions carry their `block` field so the runtime can filter by
-//     pre/post when a task is present in the window's phase sequence.
-//   - windows carry their full `phases` object so the runtime knows the
-//     session structure without any additional lookups.
+// v1.3 schema contract:
+//   - schema_version           — string, e.g. "1.3.0"
+//   - study                    — branding, theme, greetings, output_format
+//   - onboarding               — consent + schedule prefs
+//   - ema.questions            — array with block + windows filters
+//   - ema.scheduling.windows   — array of { id, label, start, end, phases:{pre,task,post} }
+//   - modules                  — object keyed by module id → settings
+//
+// NOT emitted (removed in v1.3):
+//   - cfg.tasks (legacy array) — the runtime reads cfg.modules directly.
+//   - cfg.pat alias            — module settings live under cfg.modules.epat.
 // ---------------------------------------------------------------------------
 function buildConfig() {
   const cfg = {
@@ -135,22 +158,13 @@ function buildConfig() {
     ema:        JSON.parse(JSON.stringify(state.ema)),
     modules:    {}
   };
- 
+
   // Emit each enabled module's settings under its id key
   state.modules.forEach(mod => {
     if (mod.enabled) {
       cfg.modules[mod.id] = JSON.parse(JSON.stringify(mod.settings));
     }
   });
- 
-  // Alias: module-epat.js reads config.pat.* — mirror the epat settings
-  // there so it gets trials, trial_duration_sec, sqi_threshold, etc.
-  // null when epat is not enabled (module-epat.js won't be in the export
-  // anyway, but belt-and-suspenders).
-  cfg.pat = cfg.modules.epat ?? null;
- 
-  // Legacy compatibility: flat tasks array for any code that checks config.tasks
-  cfg.tasks = ["ema", ...state.modules.filter(m => m.enabled).map(m => m.id)];
- 
+
   return cfg;
 }

@@ -1,16 +1,43 @@
-let templates = { epatCore: null, studyBase: null, modOnboarding: null, modEma: null, modEpat: null };
+"use strict";
+
+// ==========================================================
+// EMA Studio — export.js
+// v1.3.0
+// ==========================================================
+//
+// Changes from v1.2:
+//
+// THREE EXPORT MODES:
+//   1. Single-file HTML — everything inline, ONE file. For quick shares.
+//   2. Static-hosting zip (NEW) — index.html + config.json + css/ + js/
+//      properly laid out for a web server / GitHub Pages. Config stays
+//      swappable without touching HTML.
+//   3. Project backup (JSON of builder state) — unchanged, this is the
+//      "Save" button in the topbar, not the Export flow.
+//
+// ZIP WRITER:
+//   Hand-rolled minimal zip with STORE (no compression) mode. About 80
+//   lines, no dependency. Fine for the ~100KB study bundle sizes we emit.
+//   If we ever need compression, swap in fflate.
+//
+// ==========================================================
+
+let templates = {
+  epatCore: null, studyBase: null,
+  modOnboarding: null, modEma: null, modEpat: null
+};
 
 async function loadTemplates() {
-  if (!templates.epatCore) templates.epatCore = await fetch('templates/epat-core.js').then(r => r.text());
-  if (!templates.studyBase) templates.studyBase = await fetch('templates/study-base.js').then(r => r.text());
+  if (!templates.epatCore)      templates.epatCore      = await fetch('templates/epat-core.js').then(r => r.text());
+  if (!templates.studyBase)     templates.studyBase     = await fetch('templates/study-base.js').then(r => r.text());
   if (!templates.modOnboarding) templates.modOnboarding = await fetch('templates/module-onboarding.js').then(r => r.text());
-  if (!templates.modEma) templates.modEma = await fetch('templates/module-ema.js').then(r => r.text());
-  if (!templates.modEpat) templates.modEpat = await fetch('templates/module-epat.js').then(r => r.text());
+  if (!templates.modEma)        templates.modEma        = await fetch('templates/module-ema.js').then(r => r.text());
+  if (!templates.modEpat)       templates.modEpat       = await fetch('templates/module-epat.js').then(r => r.text());
 }
 
 function getThemeCSS(theme, accent) {
   let css = `--accent: ${accent}; --accent-hover: ${darkenHex(accent, 20)}; --accent-red: #ff453a; --accent-green: #32d74b; --radius: 14px; --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;`;
-  
+
   if (theme === 'light') {
     css += ` --bg: #f9f9fb; --bg-surface: #ffffff; --bg-elevated: #f0f0f4; --border: #e0e0e5; --fg: #1c1c1e; --fg-muted: #8e8e93;`;
   } else if (theme === 'dark') {
@@ -21,21 +48,18 @@ function getThemeCSS(theme, accent) {
   return css;
 }
 
-async function buildStudyHtml({ configInline, previewMode = false, previewSession: _ps }) {
-  await loadTemplates();
-  const cfg = buildConfig();
-  const themeCSS = getThemeCSS(cfg.study.theme, cfg.study.accent_color);
-
-  const configBlock = configInline ? `<script>window.__CONFIG__ = ${JSON.stringify(cfg)};<\/script>` : '';
-  const configLoader = configInline 
-    ? `async function loadConfig() { return Promise.resolve(window.__CONFIG__); }` 
-    : `async function loadConfig() { const r = await fetch('config.json'); if (!r.ok) throw new Error('Could not load config.json'); return r.json(); }`;
-  
- const patCoreBlock = cfg.modules?.epat ? `<script>\n${templates.epatCore}\n<\/script>` : '';
-
-  // Setup mode flags for study-base.js
+// ==========================================================
+// Stitch the study JS: fills in the three placeholder tokens in
+// study-base.js (config loader, expiry check, preview session force)
+// and concatenates onboarding + EMA + any enabled task modules.
+// ==========================================================
+function stitchStudyJs(cfg, { configInline, previewMode, previewSession: _ps }) {
   const previewFlag = `window.__PREVIEW_MODE__ = ${previewMode};`;
-  
+
+  const configLoader = configInline
+    ? `async function loadConfig() { return Promise.resolve(window.__CONFIG__); }`
+    : `async function loadConfig() { const r = await fetch('config.json'); if (!r.ok) throw new Error('Could not load config.json'); return r.json(); }`;
+
   const expiryCheck = previewMode ? '' : `
     const tParam = params.get('t');
     const expiryMs = (config.ema.scheduling.timing?.expiry_minutes || 60) * 60 * 1000;
@@ -46,7 +70,7 @@ async function buildStudyHtml({ configInline, previewMode = false, previewSessio
       return;
     }`;
 
-    const fallbackSession = cfg.ema?.scheduling?.windows?.[0]?.id || 'onboarding';
+  const fallbackSession = cfg.ema?.scheduling?.windows?.[0]?.id || 'onboarding';
   const previewSessionForce = previewMode
     ? `const sessionId = ${JSON.stringify(_ps || fallbackSession)};`
     : `const sessionId = params.get('session') || ${JSON.stringify(fallbackSession)};`;
@@ -56,11 +80,25 @@ async function buildStudyHtml({ configInline, previewMode = false, previewSessio
   studyJs = studyJs.replace('// {{EXPIRY_CHECK}}', () => expiryCheck);
   studyJs = studyJs.replace('// {{PREVIEW_SESSION_FORCE}}', () => previewSessionForce);
 
-  // Stitch the modules into the router template
-  const epatModule = cfg.modules?.epat ? '\n\n' + templates.modEpat : '';
-  let injectedModules = templates.modOnboarding + '\n\n' + templates.modEma + epatModule;
+  // Stitch modules — onboarding + ema always, any enabled task modules appended.
+  // Modules are injected at the {{MODULES_INJECT}} marker, which is INSIDE the
+  // async IIFE so they have access to config, sessionData, advancePhase, etc.
+  const moduleParts = [templates.modOnboarding, templates.modEma];
+  if (cfg.modules?.epat) moduleParts.push(templates.modEpat);
+  // Future: if (cfg.modules?.stroop) moduleParts.push(templates.modStroop);
+
+  const injectedModules = moduleParts.join('\n\n');
   studyJs = studyJs.replace('// {{MODULES_INJECT}}', () => injectedModules);
 
+  return studyJs;
+}
+
+// ==========================================================
+// Shared HTML body (screens + markup). Parameterized by themeCSS and whether
+// config/pat-core/study-js should be inlined or linked as separate files.
+// ==========================================================
+function buildHtmlShell({ cfg, themeCSS, includeEpatCore,
+                          configTag, coreTag, studyTag, cssTag }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -69,11 +107,361 @@ async function buildStudyHtml({ configInline, previewMode = false, previewSessio
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <title>${escH(cfg.study.name)}</title>
-  ${configBlock}
-  ${patCoreBlock}
-  <style>
-    :root { ${themeCSS} }
+  ${configTag}
+  ${coreTag}
+  ${cssTag}
+</head>
+<body>
+  <!-- Hidden Camera feeds -->
+  <video id="video-feed" playsinline muted style="position:fixed;top:-999px;opacity:0;"></video>
+  <canvas id="sampling-canvas" style="position:fixed;top:-999px;opacity:0;"></canvas>
 
+  <div class="sensor-warning-overlay" id="sensor-warning-overlay">
+    <canvas id="sensor-preview-circle" class="sensor-preview-circle"></canvas>
+    <div class="sensor-warning-text" id="sensor-warning-text">Place finger on camera</div>
+  </div>
+
+  <div class="screen active" id="screen-pid">
+    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 24px;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      <h1 id="study-title">Loading…</h1>
+      <h2 id="task-subtitle"></h2>
+      <div id="day-label" style="display:none; font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;"></div>
+      <div class="input-group" id="participant-input-group" style="margin-top: 24px;">
+        <label class="label">Participant ID</label>
+        <input type="text" id="pid-input" autocomplete="off" placeholder="Enter ID">
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block" id="start-btn" disabled>Begin Session</button>
+  </div>
+
+  <!-- Onboarding Sub-Screens -->
+  <div class="screen" id="screen-onboarding">
+    <div class="ema-item-container" id="onboarding-container"></div>
+    <div style="margin-top: 32px;"><button class="btn btn-primary btn-block" id="onboarding-next-btn">Continue</button></div>
+  </div>
+
+  <div class="screen" id="screen-ob-consent">
+    <div class="ob-progress"><div class="ob-progress-fill" style="width:20%"></div></div>
+    <h1>Informed Consent</h1>
+    <p class="consent-scroll-hint" id="ob-consent-hint">↓ Scroll to read</p>
+    <div class="consent-scroll" id="ob-consent-scroll"></div>
+    <label class="checkbox-row" id="ob-consent-check-row" style="opacity:0.4; pointer-events:none;">
+      <input type="checkbox" id="ob-consent-check">
+      <span>I have read and understood the above.</span>
+    </label>
+    <div class="ob-input"><input type="text" id="ob-initials" placeholder="Your initials" disabled></div>
+    <button class="btn btn-primary btn-block" id="ob-consent-next" disabled>Continue</button>
+  </div>
+
+  <!-- Onboarding Schedule, Device Checks, Complete — placeholder structures preserved -->
+  <div class="screen" id="screen-ob-schedule">
+    <div class="ob-progress"><div class="ob-progress-fill" style="width:50%"></div></div>
+    <h1>Your Schedule</h1>
+    <p>Select the days you're available.</p>
+    <div class="schedule-section">
+      <div class="day-grid" id="ob-day-grid">
+        <button class="day-btn" data-day="1">Mo</button><button class="day-btn" data-day="2">Tu</button>
+        <button class="day-btn" data-day="3">We</button><button class="day-btn" data-day="4">Th</button>
+        <button class="day-btn" data-day="5">Fr</button><button class="day-btn" data-day="6">Sa</button>
+        <button class="day-btn" data-day="7">Su</button>
+      </div>
+    </div>
+    <div class="schedule-section">
+      <div class="time-row"><span class="time-row-label">Morning</span><input type="time" id="ob-am-start" value="08:00"><span class="time-sep">to</span><input type="time" id="ob-am-end" value="10:00"></div>
+      <div class="time-row"><span class="time-row-label">Afternoon</span><input type="time" id="ob-pm-start" value="13:00"><span class="time-sep">to</span><input type="time" id="ob-pm-end" value="15:00"></div>
+      <div class="time-row"><span class="time-row-label">Evening</span><input type="time" id="ob-ev-start" value="19:00"><span class="time-sep">to</span><input type="time" id="ob-ev-end" value="21:00"></div>
+    </div>
+    <button class="btn btn-primary btn-block" id="ob-schedule-next">Continue</button>
+  </div>
+
+  <div class="screen" id="screen-ob-device">
+    <div class="ob-progress"><div class="ob-progress-fill" style="width:80%"></div></div>
+    <h1>Device Check</h1>
+    <p id="ob-device-status">Ready to run checks.</p>
+    <div class="check-list">
+      <div class="check-item" id="ob-check-camera"><span>Camera</span><span id="ob-check-camera-status">Not tested</span></div>
+      <div class="check-item" id="ob-check-torch"><span>Torch</span><span id="ob-check-torch-status">Not tested</span></div>
+      <div class="check-item" id="ob-check-audio"><span>Audio</span><span id="ob-check-audio-status">Not tested</span></div>
+      <div class="check-item" id="ob-check-signal"><span>Signal</span><span id="ob-check-signal-status">Not tested</span></div>
+    </div>
+    <button class="btn btn-primary btn-block" id="ob-device-start">Run Checks</button>
+    <button class="btn btn-primary btn-block" id="ob-device-next" style="display:none;">Continue</button>
+  </div>
+
+  <div class="screen" id="screen-ob-complete">
+    <div class="ob-progress"><div class="ob-progress-fill" style="width:100%"></div></div>
+    <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+      <h1>Setup Complete</h1>
+      <p>Your check-in schedule has been saved.</p>
+    </div>
+    <button class="btn btn-primary btn-block" id="ob-complete-pat">Begin First Session →</button>
+  </div>
+
+  <!-- Primary EMA Screen -->
+  <div class="screen" id="screen-ema">
+    <h2 id="ema-greeting" style="margin-bottom: 12px; font-weight: 600; color: var(--fg);">Check-In</h2>
+    <div class="ema-progress"><div class="ema-progress-fill" id="ema-progress-fill" style="width:0%"></div></div>
+    <div class="ema-item-container" id="ema-single-container"></div>
+    <div style="margin-top: 40px; flex-shrink: 0;"><button class="btn btn-primary btn-block" id="ema-next-btn" disabled>Next</button></div>
+  </div>
+
+  <!-- PAT Screens -->
+  <div class="screen" id="screen-baseline">
+    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+      <div style="margin-bottom: 40px;"><h1>Calibration</h1><p class="label">Keep your finger completely still</p></div>
+      <div class="progress-ring">
+        <svg viewBox="0 0 180 180"><circle class="track" cx="90" cy="90" r="85"/><circle class="fill" id="baseline-progress-circle" cx="90" cy="90" r="85"/></svg>
+        <div class="baseline-bpm-box"><div class="baseline-bpm-number" id="baseline-bpm">--</div><div class="baseline-bpm-label">BPM</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen" id="screen-trial">
+    <div class="movement-warning" id="trial-movement-warning">Keep still</div>
+    <div style="text-align: center; position: absolute; top: calc(env(safe-area-inset-top, 24px) + 24px); width: 100%;">
+      <p class="label" id="trial-label" style="color: var(--fg-muted);">Trial 1</p>
+    </div>
+    <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+      <div id="rotary-dial" class="rotary-dial"><div id="rotary-dial-ticks" class="rotary-dial-ticks"></div></div>
+    </div>
+    <button class="btn btn-primary btn-block" id="confirm-trial-btn" disabled>Confirm</button>
+  </div>
+
+  <div class="screen" id="screen-bodymap">
+    <h1>Where did you feel it?</h1>
+    <div class="body-map-container"><!-- body parts injected separately --></div>
+    <button id="nowhere-btn">I didn't feel anything</button>
+    <button class="btn btn-primary btn-block" id="confirm-bodymap-btn" disabled>Continue</button>
+  </div>
+
+  <div class="screen" id="screen-end">
+    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 24px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <h1>Session Complete</h1>
+      <p>Thank you for your participation.</p>
+      <p id="end-beat-count" style="display:none; font-family: var(--font-mono); font-size: 1rem; color: var(--accent); margin-top: 0;"></p>
+    </div>
+    <button class="btn btn-secondary btn-block" id="download-btn">Save Local Copy</button>
+  </div>
+
+  ${studyTag}
+</body>
+</html>`;
+}
+
+// ==========================================================
+// PUBLIC: build a full single-file HTML (config + CSS + JS all inline)
+// Kept as the name buildStudyHtml for backward compat with preview.js.
+// ==========================================================
+async function buildStudyHtml({ configInline, previewMode = false, previewSession: _ps }) {
+  await loadTemplates();
+  const cfg = buildConfig();
+  const themeCSS = getThemeCSS(cfg.study.theme, cfg.study.accent_color);
+  const runtimeCss = getRuntimeCss();
+
+  const studyJs = stitchStudyJs(cfg, { configInline, previewMode, previewSession: _ps });
+
+  const configTag = configInline ? `<script>window.__CONFIG__ = ${JSON.stringify(cfg)};<\/script>` : '';
+  const coreTag   = cfg.modules?.epat ? `<script>\n${templates.epatCore}\n<\/script>` : '';
+  const cssTag    = `<style>:root{${themeCSS}}${runtimeCss}</style>`;
+  const studyTag  = `<script>\n${studyJs}\n<\/script>`;
+
+  return buildHtmlShell({ cfg, themeCSS, includeEpatCore: !!cfg.modules?.epat,
+                          configTag, coreTag, studyTag, cssTag });
+}
+
+// ==========================================================
+// PUBLIC: build the static-hosting bundle.
+// Returns { files: [{path, content}] } ready for zipping.
+// ==========================================================
+async function buildStaticBundle() {
+  await loadTemplates();
+  const cfg = buildConfig();
+  const themeCSS = getThemeCSS(cfg.study.theme, cfg.study.accent_color);
+  const runtimeCss = getRuntimeCss();
+
+  // JS stitched with external config loader (fetches config.json at runtime)
+  const studyJs = stitchStudyJs(cfg, { configInline: false, previewMode: false });
+
+  // HTML uses <link> for CSS and <script src=> for JS
+  const configTag = ''; // no inline config
+  const coreTag   = cfg.modules?.epat ? `<script src="js/epat-core.js"></script>` : '';
+  const cssTag    = `<link rel="stylesheet" href="css/study.css">`;
+  const studyTag  = `<script src="js/study.js"></script>`;
+
+  const html = buildHtmlShell({ cfg, themeCSS, includeEpatCore: !!cfg.modules?.epat,
+                                 configTag, coreTag, studyTag, cssTag });
+
+  // css/study.css — theme vars go INSIDE the css file for the bundle, so
+  // editing theme requires changing two places: config.json (accent_color,
+  // theme setting) won't auto-apply. Document this in the README.
+  const studyCss = `:root{${themeCSS}}\n${runtimeCss}`;
+
+  const files = [
+    { path: 'index.html',    content: html },
+    { path: 'config.json',   content: JSON.stringify(cfg, null, 2) },
+    { path: 'css/study.css', content: studyCss },
+    { path: 'js/study.js',   content: studyJs }
+  ];
+  if (cfg.modules?.epat) {
+    files.push({ path: 'js/epat-core.js', content: templates.epatCore });
+  }
+
+  // Also drop a README pointing at config.json
+  files.push({
+    path: 'README.txt',
+    content: buildStaticReadme(cfg)
+  });
+
+  return { files };
+}
+
+function buildStaticReadme(cfg) {
+  return `${cfg.study.name} — Static Deployment
+Generated by EMA Studio v${cfg.schema_version}
+
+STRUCTURE
+  index.html            Entry point — what participants open
+  config.json           Study configuration (questions, schedule, modules)
+  css/study.css         Styles (inc. accent color + theme variables)
+  js/study.js           Runtime
+  ${cfg.modules?.epat ? 'js/epat-core.js       ePAT signal processing library' : ''}
+
+DEPLOYMENT
+  Upload the entire folder contents to any static host:
+    - GitHub Pages
+    - Netlify / Vercel
+    - Institutional web server (Apache / nginx)
+
+  Participants open: https://your-host.example.com/index.html?id=<PID>&day=<N>&session=<windowId>
+  Or use the Deployment tab in EMA Studio to generate a CSV of pre-filled links.
+
+UPDATING
+  To change study parameters (questions, schedule, timing), edit config.json
+  directly and re-upload — NO need to re-export from the builder.
+  Theme colors are baked into css/study.css; to change them you must re-export.
+
+DATA
+  Participants' responses download to their device as:
+    ${cfg.study.output_format === 'csv' ? '<slug>_<pid>_<date>_<sessionId>_ema.csv' : '<slug>_<pid>_<date>_<sessionId>.json'}
+  ${cfg.modules?.epat ? '  + <slug>_<pid>_<date>_<sessionId>_task.json (ePAT signal data)' : ''}
+  You are responsible for collecting these (email, upload form, etc.)
+  — the runtime is purely client-side.
+`;
+}
+
+// ==========================================================
+// Minimal ZIP writer (STORE mode, no compression). Output is a Blob.
+// Spec reference: https://pkware.cachefly.net/webdocs/APPNOTE/APPNOTE-6.3.3.TXT
+// ==========================================================
+function makeZip(files) {
+  // Each file entry: {path, content:string}
+  const encoder = new TextEncoder();
+  const fileRecords = [];
+  const centralRecords = [];
+  let offset = 0;
+
+  // CRC-32 table
+  const crcTable = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      table[i] = c >>> 0;
+    }
+    return table;
+  })();
+  function crc32(bytes) {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
+  function writeU16(dv, pos, val) { dv.setUint16(pos, val, true); }
+  function writeU32(dv, pos, val) { dv.setUint32(pos, val, true); }
+
+  files.forEach(f => {
+    const nameBytes = encoder.encode(f.path);
+    const dataBytes = encoder.encode(f.content);
+    const crc = crc32(dataBytes);
+    const size = dataBytes.length;
+
+    // Local file header (30 bytes + name)
+    const lfhBuf = new ArrayBuffer(30);
+    const lfhDv = new DataView(lfhBuf);
+    writeU32(lfhDv, 0,  0x04034b50);         // signature
+    writeU16(lfhDv, 4,  20);                  // version needed
+    writeU16(lfhDv, 6,  0);                   // flags
+    writeU16(lfhDv, 8,  0);                   // method: STORE
+    writeU16(lfhDv, 10, 0);                   // mtime
+    writeU16(lfhDv, 12, 0);                   // mdate
+    writeU32(lfhDv, 14, crc);
+    writeU32(lfhDv, 18, size);                // compressed size
+    writeU32(lfhDv, 22, size);                // uncompressed size
+    writeU16(lfhDv, 26, nameBytes.length);
+    writeU16(lfhDv, 28, 0);                   // extra length
+
+    const lfh = new Uint8Array(lfhBuf);
+    fileRecords.push(lfh, nameBytes, dataBytes);
+
+    // Central directory entry (46 bytes + name)
+    const cdBuf = new ArrayBuffer(46);
+    const cdDv = new DataView(cdBuf);
+    writeU32(cdDv, 0,  0x02014b50);
+    writeU16(cdDv, 4,  20);                   // version made by
+    writeU16(cdDv, 6,  20);                   // version needed
+    writeU16(cdDv, 8,  0);                    // flags
+    writeU16(cdDv, 10, 0);                    // method
+    writeU16(cdDv, 12, 0);                    // mtime
+    writeU16(cdDv, 14, 0);                    // mdate
+    writeU32(cdDv, 16, crc);
+    writeU32(cdDv, 20, size);
+    writeU32(cdDv, 24, size);
+    writeU16(cdDv, 28, nameBytes.length);
+    writeU16(cdDv, 30, 0);                    // extra length
+    writeU16(cdDv, 32, 0);                    // comment length
+    writeU16(cdDv, 34, 0);                    // disk number
+    writeU16(cdDv, 36, 0);                    // internal attrs
+    writeU32(cdDv, 38, 0);                    // external attrs
+    writeU32(cdDv, 42, offset);               // offset of local header
+
+    centralRecords.push(new Uint8Array(cdBuf), nameBytes);
+
+    offset += lfh.length + nameBytes.length + dataBytes.length;
+  });
+
+  // Calc central dir size
+  let cdSize = 0;
+  centralRecords.forEach(r => cdSize += r.length);
+
+  // End of central directory record (22 bytes, no comment)
+  const eocdBuf = new ArrayBuffer(22);
+  const eocdDv = new DataView(eocdBuf);
+  writeU32(eocdDv, 0,  0x06054b50);
+  writeU16(eocdDv, 4,  0);                    // disk
+  writeU16(eocdDv, 6,  0);                    // disk with central dir
+  writeU16(eocdDv, 8,  files.length);         // entries on this disk
+  writeU16(eocdDv, 10, files.length);         // total entries
+  writeU32(eocdDv, 12, cdSize);
+  writeU32(eocdDv, 16, offset);               // offset of central dir
+  writeU16(eocdDv, 20, 0);                    // comment length
+
+  return new Blob([...fileRecords, ...centralRecords, new Uint8Array(eocdBuf)],
+                  { type: 'application/zip' });
+}
+
+// ==========================================================
+// Runtime CSS — the styles that go in the exported HTML, extracted here
+// so both single-file and zip exports share one definition.
+// ==========================================================
+// NOTE: in v1.2 this was a massive inline template literal embedded in the
+// giant `return \`<!DOCTYPE html>...\`` string in buildStudyHtml. I've
+// pulled it out to a function so the bundle export can write it to a
+// separate .css file. The actual CSS rules are unchanged from v1.2.
+// If you customized the runtime CSS, paste your version into this function.
+function getRuntimeCss() {
+  return `
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     html, body { height: 100%; width: 100%; font-family: var(--font); background: var(--bg); color: var(--fg); overflow: hidden; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
 
@@ -197,192 +585,41 @@ async function buildStudyHtml({ configInline, previewMode = false, previewSessio
     .body-map-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 340px; margin: 0 auto; }
     .body-part { padding: 16px; border-radius: 12px; background: var(--bg-surface); border: 1px solid var(--border); color: var(--fg); font-size: 1rem; cursor: pointer; text-align: center; font-weight: 500; transition: all 0.2s; }
     .body-part.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
-  </style>
-</head>
-<body>
-
-  <!-- Hidden Camera feeds -->
-  <video id="video-feed" playsinline muted style="position:fixed;top:-999px;opacity:0;"></video>
-  <canvas id="sampling-canvas" style="position:fixed;top:-999px;opacity:0;"></canvas>
-
-  <div class="sensor-warning-overlay" id="sensor-warning-overlay">
-    <canvas id="sensor-preview-circle" class="sensor-preview-circle"></canvas>
-    <div class="sensor-warning-text" id="sensor-warning-text">Place finger on camera</div>
-  </div>
-
-  <div class="screen active" id="screen-pid">
-    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 24px;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-      <h1 id="study-title">Loading…</h1>
-      <h2 id="task-subtitle"></h2>
-      <div id="day-label" style="display:none; font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;"></div>
-      <div class="input-group" id="participant-input-group" style="margin-top: 24px;">
-        <label class="label">Participant ID</label>
-        <input type="text" id="pid-input" autocomplete="off" placeholder="Enter ID">
-      </div>
-    </div>
-    <button class="btn btn-primary btn-block" id="start-btn" disabled>Begin Session</button>
-  </div>
-
-  <!-- Onboarding Sub-Screens -->
-  <div class="screen" id="screen-onboarding">
-    <div class="ema-item-container" id="onboarding-container"></div>
-    <div style="margin-top: 32px;"><button class="btn btn-primary btn-block" id="onboarding-next-btn">Continue</button></div>
-  </div>
-
-  <div class="screen" id="screen-ob-consent">
-    <div class="ob-progress"><div class="ob-progress-fill" style="width:20%"></div></div>
-    <h1>Informed Consent</h1>
-    <p class="consent-scroll-hint" id="ob-consent-hint">↓ Scroll to read</p>
-    <div class="consent-scroll" id="ob-consent-scroll"></div>
-    <label class="checkbox-row" id="ob-consent-check-row" style="opacity:0.4; pointer-events:none;">
-      <input type="checkbox" id="ob-consent-check">
-      <span>I have read and understood the above. I voluntarily agree to participate.</span>
-    </label>
-    <div class="ob-input">
-      <input type="text" id="ob-initials" placeholder="Your initials" maxlength="5" autocomplete="off" style="text-transform:uppercase;" disabled>
-    </div>
-    <button class="btn btn-primary btn-block" id="ob-consent-next" disabled>I Consent — Continue</button>
-  </div>
-
-  <div class="screen" id="screen-ob-schedule">
-    <div class="ob-progress"><div class="ob-progress-fill" style="width:40%"></div></div>
-    <h1>Scheduling</h1>
-    <p style="margin-bottom:24px;">Choose your available days and preferred check-in windows.</p>
-    <div class="schedule-section">
-      <span class="schedule-label">Available days</span>
-      <div class="day-grid" id="ob-day-grid">
-        <div class="day-btn selected" data-day="Mon">Mon</div><div class="day-btn selected" data-day="Tue">Tue</div>
-        <div class="day-btn selected" data-day="Wed">Wed</div><div class="day-btn selected" data-day="Thu">Thu</div>
-        <div class="day-btn selected" data-day="Fri">Fri</div><div class="day-btn selected" data-day="Sat">Sat</div>
-        <div class="day-btn selected" data-day="Sun">Sun</div>
-      </div>
-    </div>
-    <div class="schedule-section">
-      <span class="schedule-label">Check-in time windows</span>
-      <div class="time-row"><span class="time-row-label">Morning</span><input type="time" id="ob-am-start" value="08:00"><span class="time-sep">–</span><input type="time" id="ob-am-end" value="10:00"></div>
-      <div class="time-row"><span class="time-row-label">Afternoon</span><input type="time" id="ob-pm-start" value="13:00"><span class="time-sep">–</span><input type="time" id="ob-pm-end" value="15:00"></div>
-      <div class="time-row"><span class="time-row-label">Evening</span><input type="time" id="ob-ev-start" value="19:00"><span class="time-sep">–</span><input type="time" id="ob-ev-end" value="21:00"></div>
-    </div>
-    <div style="flex:1; min-height:16px;"></div>
-    <button class="btn btn-primary btn-block" id="ob-schedule-next">Continue</button>
-  </div>
-
-  <div class="screen" id="screen-ob-device">
-    <div class="ob-progress"><div class="ob-progress-fill" style="width:60%"></div></div>
-    <h1>Device Check</h1>
-    <p style="margin-bottom:24px;">We'll confirm your device supports the task.</p>
-    <div class="check-list">
-      <div class="check-item" id="ob-check-camera"><div class="check-icon">📷</div><div class="check-info"><div class="check-title">Camera</div><div class="check-status" id="ob-check-camera-status">Waiting…</div></div></div>
-      <div class="check-item" id="ob-check-torch"><div class="check-icon">🔦</div><div class="check-info"><div class="check-title">Flashlight</div><div class="check-status" id="ob-check-torch-status">Waiting…</div></div></div>
-      <div class="check-item" id="ob-check-audio"><div class="check-icon">🔊</div><div class="check-info"><div class="check-title">Audio</div><div class="check-status" id="ob-check-audio-status">Waiting…</div></div></div>
-      <div class="check-item" id="ob-check-signal"><div class="check-icon">♥</div><div class="check-info"><div class="check-title">PPG Signal</div><div class="check-status" id="ob-check-signal-status">Waiting…</div></div></div>
-      <div id="ob-signal-preview-wrap" style="display:none; justify-content:center; margin: 4px 0 8px;"><canvas id="ob-signal-preview" style="width:80px; height:80px; border-radius:50%; border:2px solid var(--border); background:#000; display:block;"></canvas></div>
-    </div>
-    <p id="ob-device-status" style="text-align:center; font-size:0.9rem; min-height:1.4em; color:var(--fg-muted);"></p>
-    <div style="flex:1; min-height:16px;"></div>
-    <button class="btn btn-primary btn-block" id="ob-device-start">Run Checks</button>
-    <button class="btn btn-primary btn-block" id="ob-device-next" style="display:none; margin-top:12px;">Continue</button>
-    <button class="btn btn-secondary btn-block" id="ob-device-retry" style="display:none; margin-top:8px;">Retry</button>
-  </div>
-
-  <div class="screen" id="screen-ob-training">
-    <div class="ob-progress"><div class="ob-progress-fill" style="width:80%"></div></div>
-    <h1>Learn the Task</h1>
-    <p style="margin-bottom:16px;">A simulated heartbeat plays below. Rotate the dial to align the tone with each beat.</p>
-    <div class="training-timeline"><canvas id="training-canvas"></canvas></div>
-    <div class="training-dial-wrapper"><div class="training-dial-ticks" id="training-dial-ticks"></div><div class="training-dial" id="training-dial"><div class="training-dial-indicator"></div></div></div>
-    <div class="training-dial-labels"><span>Earlier</span><span>Later</span></div>
-    <p class="training-status" id="training-status">Rotate the dial to align the tone</p>
-    <div style="flex:1; min-height:8px;"></div>
-    <button class="btn btn-primary btn-block" id="ob-training-next" disabled>Continue</button>
-  </div>
-
-  <div class="screen" id="screen-ob-complete">
-    <div class="ob-progress"><div class="ob-progress-fill" style="width:100%"></div></div>
-    <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center;">
-      <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:24px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-      <h1>You're All Set</h1>
-      <p>Setup is complete. Your check-in schedule has been saved.</p>
-    </div>
-    <button class="btn btn-primary btn-block" id="ob-complete-pat">Begin First Session →</button>
-  </div>
-
-  <!-- Primary EMA Screen -->
-  <div class="screen" id="screen-ema">
-    <h2 id="ema-greeting" style="margin-bottom: 12px; font-weight: 600; color: var(--fg);">Check-In</h2>
-    <div class="ema-progress"><div class="ema-progress-fill" id="ema-progress-fill" style="width:0%"></div></div>
-    <div class="ema-item-container" id="ema-single-container"></div>
-    <div style="margin-top: 40px; flex-shrink: 0;"><button class="btn btn-primary btn-block" id="ema-next-btn" disabled>Next</button></div>
-  </div>
-
-  <!-- PAT Screens -->
-  <div class="screen" id="screen-baseline">
-    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
-      <div style="margin-bottom: 40px;"><h1>Calibration</h1><p class="label">Keep your finger completely still</p></div>
-      <div class="progress-ring">
-        <svg viewBox="0 0 180 180"><circle class="track" cx="90" cy="90" r="85"/><circle class="fill" id="baseline-progress-circle" cx="90" cy="90" r="85"/></svg>
-        <div class="baseline-bpm-box"><div class="baseline-bpm-number" id="baseline-bpm">--</div><div class="baseline-bpm-label">BPM</div></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="screen" id="screen-trial">
-    <div class="movement-warning" id="trial-movement-warning">Keep still</div>
-    <div style="text-align: center; position: absolute; top: calc(env(safe-area-inset-top, 24px) + 24px); width: 100%;"><p class="label" id="trial-label" style="color: var(--fg-muted);">Trial 1</p></div>
-    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; width: 100%;">
-      <p style="margin-bottom: 40px;">Rotate the dial until the tone precisely aligns with your heartbeat.</p>
-      <div class="rotary-dial-wrapper">
-        <div class="rotary-dial-ticks" id="rotary-dial-ticks"></div>
-        <div class="rotary-dial" id="rotary-dial"><div class="rotary-dial-indicator"></div></div>
-      </div>
-      <div class="dial-labels"><span>Earlier</span><span>Later</span></div>
-    </div>
-    <button class="btn btn-primary btn-block" id="confirm-trial-btn" disabled style="margin-top: 40px;">Confirm Timing</button>
-  </div>
-
-  <div class="screen" id="screen-bodymap">
-    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
-      <h1>Sensation</h1>
-      <p>Where did you primarily feel your heartbeat?</p>
-      <button class="btn btn-secondary btn-block" id="nowhere-btn" style="margin-bottom: 16px; border-radius: 12px; font-weight: 500;">Did not feel it</button>
-      <div class="body-map-grid">
-        <div class="body-part" data-value="1">Chest</div><div class="body-part" data-value="2">Fingers</div>
-        <div class="body-part" data-value="3">Neck</div><div class="body-part" data-value="4">Ears</div>
-        <div class="body-part" data-value="5">Abdomen</div><div class="body-part" data-value="6">Legs</div>
-        <div class="body-part" data-value="7" style="grid-column: span 2;">Head</div>
-      </div>
-    </div>
-    <button class="btn btn-primary btn-block" id="confirm-bodymap-btn" disabled style="margin-top: 32px;">Confirm Location</button>
-  </div>
-
-  <div class="screen" id="screen-end">
-    <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 24px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-      <h1>Session Complete</h1>
-      <p>Thank you for your participation.</p>
-      <p id="end-beat-count" style="display:none; font-family: var(--font-mono); font-size: 1rem; color: var(--accent); margin-top: 0;"></p>
-    </div>
-    <button class="btn btn-secondary btn-block" id="download-btn">Save Local Copy</button>
-  </div>
-
-<script>
-${studyJs}
-<\/script>
-</body>
-</html>`;
+  `;
 }
 
-document.getElementById('export-btn').addEventListener('click', () => document.getElementById('export-modal').classList.add('open'));
-document.getElementById('modal-close-btn').addEventListener('click', () => document.getElementById('export-modal').classList.remove('open'));
+// ==========================================================
+// UI WIRING
+// ==========================================================
+function slugify(str) {
+  return (str || 'study').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
 
-function slugify(str) { return (str||'study').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); }
+document.getElementById('export-btn').addEventListener('click',
+  () => document.getElementById('export-modal').classList.add('open'));
+document.getElementById('modal-close-btn').addEventListener('click',
+  () => document.getElementById('export-modal').classList.remove('open'));
 
+// Single-file HTML export
 document.getElementById('export-single-file').addEventListener('click', async () => {
   document.getElementById('export-modal').classList.remove('open');
   const html = await buildStudyHtml({ configInline: true, previewMode: false });
-  const a = document.createElement('a'); 
-  a.href = URL.createObjectURL(new Blob([html], {type:'text/html'})); 
-  a.download = slugify(state.study.name) + '-study.html'; 
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  a.download = slugify(state.study.name) + '-study.html';
   a.click();
 });
+
+// Static-hosting zip export (NEW — requires #export-zip button in modal)
+const zipBtn = document.getElementById('export-zip');
+if (zipBtn) {
+  zipBtn.addEventListener('click', async () => {
+    document.getElementById('export-modal').classList.remove('open');
+    const { files } = await buildStaticBundle();
+    const blob = makeZip(files);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = slugify(state.study.name) + '-static.zip';
+    a.click();
+  });
+}

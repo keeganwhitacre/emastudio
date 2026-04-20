@@ -3,7 +3,7 @@
 // ==========================================================
 const ePAT = (function() {
   const core = window.ePATCore;
-  const NUM_TRIALS = config.pat?.trials || 20;
+  const NUM_TRIALS = config.modules?.epat?.trials || 20;
   const IBI_CHANGE_THRESHOLD = 0.30;
   const SQI_GOOD = 0.008, SQI_WARN = 0.004;
 
@@ -16,7 +16,7 @@ const ePAT = (function() {
   let baselineTimer = null, baselineBPMs = [], baselineStartTime = 0;
   let isFingerPresent = false, currentSqiValue = 0, lastBeatPerfTime = performance.now(), sensorCheckInterval = null;
   let dialEl, dialAngle = 0, dialDragging = false, dialCx = 0, dialCy = 0, lastAngle = 0;
-  let trialVisualOffset = 0, currentKnobValue = 0, currentTrialIndex = config.pat?.two_phase_practice ? -2 : 0;
+let trialVisualOffset = 0, currentKnobValue = 0, currentTrialIndex = config.modules?.epat?.two_phase_practice ? -2 : 0;
   let trialDetectorRunning = false, trialRunning = false;
 
   function initDial() {
@@ -97,7 +97,7 @@ const ePAT = (function() {
   async function startBaseline() {
     show("screen-baseline");
     baselineBPMs = []; baselineStartTime = Date.now();
-    currentTrialIndex = config.pat?.two_phase_practice ? -2 : 0;
+    currentTrialIndex = config.modules?.epat?.two_phase_practice ? -2 : 0;
     initDial();
 
     const bpmEl = document.getElementById("baseline-bpm");
@@ -262,8 +262,8 @@ const ePAT = (function() {
     }
 
     // Evaluate overlays
-    const needsConf = config.pat?.confidence_ratings && !td.isPractice;
-    const needsMap = config.pat?.body_map && currentTrialIndex >= 0 && (currentTrialIndex + 1) % 4 === 0;
+    const needsConf = config.modules?.epat?.confidence_ratings && !td.isPractice;
+    const needsMap  = config.modules?.epat?.body_map && currentTrialIndex >= 0 && (currentTrialIndex + 1) % 4 === 0;
 
     if (needsMap) {
       show("screen-bodymap");
