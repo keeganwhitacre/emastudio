@@ -110,14 +110,49 @@
       </div>
 
       <div class="divider"></div>
+    <div class="section-title">Session Safety</div>
+    <div class="field-hint" style="margin-bottom:12px;">
+      Controls protecting data integrity during field use. Both are on by default —
+      turn off only if your study design requires it.
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">
+        Lock completed sessions
+        <span class="field-hint" style="display:block;margin-top:2px;">
+          A participant can only complete each (ID, day, session) combination once.
+          Prevents accidental re-submissions. Researchers can override with
+          <code>?force=1</code>.
+        </span>
+      </span>
+      <label class="toggle">
+        <input type="checkbox" id="study-completion-lock" checked>
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+    <div class="toggle-row" style="margin-top:10px;">
+      <span class="toggle-label">
+        Enable crash recovery
+        <span class="field-hint" style="display:block;margin-top:2px;">
+          If a participant's session is interrupted (crash, closed tab), they can
+          resume by re-opening the same link. Already-completed phases' data survives;
+          the current phase restarts.
+        </span>
+      </span>
+      <label class="toggle">
+        <input type="checkbox" id="study-resume-enabled" checked>
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+
+      <div class="divider"></div>
       <div class="section-title">Data Output</div>
       <div class="field-group">
         <label class="field-label">Response Format</label>
         <div class="seg-ctrl" id="format-ctrl">
-          <button class="seg-btn active" data-fmt="json">JSON</button>
-          <button class="seg-btn" data-fmt="csv">CSV</button>
-        </div>
-        <div class="field-hint" id="format-hint">Each submission downloads a .json file. One file per session per participant.</div>
+      <button class="seg-btn" data-fmt="json">JSON</button>
+      <button class="seg-btn active" data-fmt="csv">CSV</button>
+    </div>
+    <div class="field-hint" id="format-hint">Each submission downloads a .csv with one row per question. Easy to concatenate across participants. Task signal data (e.g. ePAT) downloads alongside as a separate .json.</div>
       </div>
     </div>
 
@@ -163,6 +198,7 @@
         <button class="btn" id="add-check-btn">+ Checkbox (Multi)</button>
         <button class="btn" id="add-text-btn">+ Text</button>
         <button class="btn" id="add-num-btn">+ Number</button>
+        <button class="btn" id="add-affect-btn" style="color: var(--accent);">+ Affect Grid</button>
         <div style="width: 1px; background: var(--border); margin: 0 4px;"></div>
         <button class="btn" id="add-page-btn" style="color: var(--accent); border-color: rgba(232,113,106,0.3);">+ Page Break</button>
       </div>

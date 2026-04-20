@@ -1,20 +1,16 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Questions Tab — v1.2.1
+// Questions Tab — v1.4
 //
-// Changes from v1.2.0:
-//   - Added "Active Sessions" checkbox group to each question card.
-//     q.windows = null means "all sessions" (default, backward-compatible).
-//     q.windows = ["w1","w3"] means this question only fires in those windows.
-//   - buildSessionSelector(q) builds the checkbox group dynamically from
-//     state.ema.scheduling.windows so it stays in sync when windows are
-//     added, removed, or renamed (renderQuestions is called on those events).
-//   - bindSessionSelector(card, q) wires the checkboxes and handles the
-//     "all selected = null" normalization: if every window is checked we
-//     store null rather than an explicit array, keeping the config clean.
-//   - addQ() defaults now include windows: null.
-//   - Schema migration: questions without a windows field get null on load.
+// Changes from v1.2.1:
+//   - Added affect_grid question type. UI lets the researcher customize
+//     the valence + arousal axis labels and toggle quadrant labels.
+//     The underlying data shape for responses is {valence, arousal} where
+//     both live in [-1, 1]. See templates/module-ema.js for rendering.
+//   - Schema migration: any question without a windows field gets null;
+//     any question without a block gets 'both'; affect_grid gets
+//     reasonable axis-label defaults if missing.
 // ---------------------------------------------------------------------------
 
 function renderQuestions() {
@@ -31,6 +27,11 @@ function buildQCard(q, index) {
   // Schema migrations
   if (!q.block && q.type !== 'page_break')   q.block   = 'both';
   if (q.windows === undefined)               q.windows = null;
+  if (q.type === 'affect_grid') {
+    if (!q.valence_labels) q.valence_labels = ['Unpleasant', 'Pleasant'];
+    if (!q.arousal_labels) q.arousal_labels = ['Deactivated', 'Activated'];
+    if (q.show_quadrant_labels === undefined) q.show_quadrant_labels = true;
+  }
 
   if (q.type === 'page_break') {
     card.classList.add('page-break');
@@ -49,8 +50,9 @@ function buildQCard(q, index) {
   }
 
   let typeLabel = q.type.charAt(0).toUpperCase() + q.type.slice(1);
-  if (q.type === 'choice')   typeLabel = 'Single Choice';
-  if (q.type === 'checkbox') typeLabel = 'Multi Select';
+  if (q.type === 'choice')      typeLabel = 'Single Choice';
+  if (q.type === 'checkbox')    typeLabel = 'Multi Select';
+  if (q.type === 'affect_grid') typeLabel = 'Affect Grid';
 
   const blockOpts = [
     { value: 'pre',  label: 'Pre-task only' },
@@ -73,12 +75,11 @@ function buildQCard(q, index) {
       </div>
       ${q.type === 'slider' ? buildSliderFields(q) : ''}
       ${(q.type === 'choice' || q.type === 'checkbox') ? buildChoiceFields(q) : ''}
+      ${q.type === 'affect_grid' ? buildAffectGridFields(q) : ''}
       ${(q.type === 'text' || q.type === 'numeric') ? `<div class="field-hint" style="margin-top:6px">Participants will be given a ${q.type === 'numeric' ? 'number pad' : 'text box'} to answer this question.</div>` : ''}
 
-      <!-- ── Scheduling controls row ───────────────────────────────── -->
+      <!-- Scheduling controls -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px;">
-
-        <!-- Block / Phase selector -->
         <div class="field-group" style="margin:0">
           <label class="field-label">Show In (Phase)
             <span class="field-hint" style="display:inline;margin-left:4px;">Which EMA block when a task is present.</span>
@@ -87,8 +88,6 @@ function buildQCard(q, index) {
             ${blockOpts}
           </select>
         </div>
-
-        <!-- Active Sessions checkbox group -->
         <div class="field-group" style="margin:0">
           <label class="field-label">Active Sessions
             <span class="field-hint" style="display:inline;margin-left:4px;">Uncheck to exclude from a session.</span>
@@ -97,9 +96,7 @@ function buildQCard(q, index) {
             ${buildSessionSelector(q)}
           </div>
         </div>
-
       </div>
-      <!-- ── end scheduling controls ──────────────────────────────── -->
 
       <div class="field-group" style="margin-top:10px;">
         <label class="field-label">Skip Logic</label>
@@ -112,56 +109,60 @@ function buildQCard(q, index) {
           <span class="toggle-track"></span>
         </label>
       </div>
-      <button class="q-del-btn">
-        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 1.75a.25.25 0 01.25-.25h2.5a.25.25 0 01.25.25V3h-3V1.75zM5 3V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75V3h3.25a.75.75 0 010 1.5H.75A.75.75 0 010 4.5H3zm1.5 0h3v1H6.5V3zM3.074 5.5l.75 7.5a.75.75 0 00.746.676h6.86a.75.75 0 00.745-.676l.75-7.5H3.074z"/></svg>
-        Remove
-      </button>
+      <div class="q-footer">
+        <button class="q-del-btn-full">Delete Question</button>
+      </div>
     </div>
   `;
 
-  card.querySelector('.q-header').addEventListener('click', () => card.classList.toggle('expanded'));
+  // ---- Common bindings ----
+  card.querySelector('.q-header').addEventListener('click', e => {
+    if (e.target.closest('.q-drag-handle')) return;
+    card.classList.toggle('expanded');
+  });
 
   card.querySelector('.q-text').addEventListener('input', e => {
     q.text = e.target.value;
-    card.querySelector('.q-preview-text').innerHTML = escH(q.text) || '<em style="color:var(--fg-3)">(no text)</em>';
+    card.querySelector('.q-preview-text').textContent = q.text || '(no text)';
     schedulePreview();
   });
 
-  card.querySelector('.q-block-select').addEventListener('change', e => {
-    q.block = e.target.value;
-    schedulePreview();
-  });
+  const blockSel = card.querySelector('.q-block-select');
+  if (blockSel) blockSel.addEventListener('change', e => { q.block = e.target.value; schedulePreview(); });
 
-  card.querySelector('.q-required').addEventListener('change', e => { q.required = e.target.checked; schedulePreview(); });
+  const reqChk = card.querySelector('.q-required');
+  if (reqChk) reqChk.addEventListener('change', e => { q.required = e.target.checked; schedulePreview(); });
 
-  card.querySelector('.q-del-btn').addEventListener('click', () => {
+  const delBtn = card.querySelector('.q-del-btn-full');
+  if (delBtn) delBtn.addEventListener('click', () => {
     state.ema.questions = state.ema.questions.filter(x => x.id !== q.id);
     renderQuestions(); schedulePreview();
   });
 
-  if (q.type === 'slider') bindSliderFields(card, q);
-  if (q.type === 'choice' || q.type === 'checkbox') bindChoiceFields(card, q);
-  bindConditionFields(card, q, index);
+  // ---- Type-specific bindings ----
+  if (q.type === 'slider')                                 bindSliderFields(card, q);
+  if (q.type === 'choice' || q.type === 'checkbox')        bindChoiceFields(card, q);
+  if (q.type === 'affect_grid')                            bindAffectGridFields(card, q);
+
+  bindConditionBlock(card, q);
   bindSessionSelector(card, q);
 
   return card;
 }
 
 // ---------------------------------------------------------------------------
-// buildSessionSelector(q)
-// Renders a compact checkbox-per-window group.
-// null = all windows active (every box checked).
-// An explicit array = only those window ids are active.
+// buildSessionSelector / bindSessionSelector
 // ---------------------------------------------------------------------------
 function buildSessionSelector(q) {
-  const windows = state.ema.scheduling.windows;
+  const windows = state.ema.scheduling.windows || [];
   if (windows.length === 0) {
-    return `<div class="field-hint" style="margin-top:4px;">No sessions defined yet.</div>`;
+    return `<div style="font-size:0.8rem;color:var(--fg-3);">No sessions defined yet.</div>`;
   }
+  const currentSelection = q.windows;  // null = all selected
   return windows.map(w => {
-    const checked = q.windows === null || q.windows.includes(w.id);
+    const checked = (currentSelection === null || currentSelection === undefined || currentSelection.includes(w.id));
     return `
-      <label class="session-check-row" data-wid="${w.id}">
+      <label class="session-check-row">
         <input type="checkbox" class="session-chk" data-wid="${w.id}" ${checked ? 'checked' : ''}>
         <span>${escH(w.label)}</span>
       </label>
@@ -169,12 +170,6 @@ function buildSessionSelector(q) {
   }).join('');
 }
 
-// ---------------------------------------------------------------------------
-// bindSessionSelector(card, q)
-// Collects checked window ids on any change.
-// Normalizes back to null when all windows are checked — keeps config clean
-// and ensures new windows added later are automatically included.
-// ---------------------------------------------------------------------------
 function bindSessionSelector(card, q) {
   card.querySelectorAll('.session-chk').forEach(chk => {
     chk.addEventListener('change', () => {
@@ -250,6 +245,58 @@ function bindChoiceFields(card, q) {
 }
 
 // ---------------------------------------------------------------------------
+// Affect Grid fields (new in v1.4)
+// ---------------------------------------------------------------------------
+function buildAffectGridFields(q) {
+  return `
+    <div class="field-hint" style="margin-top:6px;margin-bottom:8px;">
+      A 2D tap-target for valence × arousal. Participants tap a point on the grid;
+      responses are stored as <code>{valence, arousal}</code>, each in [−1, 1].
+    </div>
+    <div class="q-row-2">
+      <div class="field-group">
+        <label class="field-label">Valence — Low Anchor</label>
+        <input type="text" class="q-vlo" value="${escH((q.valence_labels||[])[0] || '')}" placeholder="Unpleasant">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Valence — High Anchor</label>
+        <input type="text" class="q-vhi" value="${escH((q.valence_labels||[])[1] || '')}" placeholder="Pleasant">
+      </div>
+    </div>
+    <div class="q-row-2">
+      <div class="field-group">
+        <label class="field-label">Arousal — Low Anchor</label>
+        <input type="text" class="q-alo" value="${escH((q.arousal_labels||[])[0] || '')}" placeholder="Deactivated">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Arousal — High Anchor</label>
+        <input type="text" class="q-ahi" value="${escH((q.arousal_labels||[])[1] || '')}" placeholder="Activated">
+      </div>
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">Show quadrant labels (Tense, Excited, Calm, Depressed)</span>
+      <label class="toggle">
+        <input type="checkbox" class="q-quadrants" ${q.show_quadrant_labels ? 'checked' : ''}>
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+  `;
+}
+
+function bindAffectGridFields(card, q) {
+  const vLo = card.querySelector('.q-vlo');
+  const vHi = card.querySelector('.q-vhi');
+  const aLo = card.querySelector('.q-alo');
+  const aHi = card.querySelector('.q-ahi');
+  const qd  = card.querySelector('.q-quadrants');
+  if (vLo) vLo.addEventListener('input', () => { q.valence_labels[0] = vLo.value; schedulePreview(); });
+  if (vHi) vHi.addEventListener('input', () => { q.valence_labels[1] = vHi.value; schedulePreview(); });
+  if (aLo) aLo.addEventListener('input', () => { q.arousal_labels[0] = aLo.value; schedulePreview(); });
+  if (aHi) aHi.addEventListener('input', () => { q.arousal_labels[1] = aHi.value; schedulePreview(); });
+  if (qd)  qd.addEventListener('change', () => { q.show_quadrant_labels = qd.checked; schedulePreview(); });
+}
+
+// ---------------------------------------------------------------------------
 // Skip Logic / Condition block
 // ---------------------------------------------------------------------------
 function buildConditionBlock(q, index) {
@@ -257,41 +304,53 @@ function buildConditionBlock(q, index) {
   if (priors.length === 0) return `<div style="font-size:11px;color:var(--fg-3);padding:4px 0">No prior questions available for logic.</div>`;
   const has    = !!q.condition;
   const src    = q.condition ? q.condition.question_id : (priors[0]?.id || '');
-  const qOpts  = priors.map(p => `<option value="${p.id}" ${p.id===src?'selected':''}>${escH(p.text.slice(0,35)||p.id)}</option>`).join('');
-  const opOpts = [['eq','='],['neq','≠'],['gt','>'],['gte','≥'],['lt','<'],['lte','≤'],['includes','includes']]
-    .map(([v,l]) => `<option value="${v}" ${q.condition?.operator===v?'selected':''}>${l}</option>`).join('');
+  const qOpts  = priors.map(p => `<option value="${p.id}" ${p.id===src?'selected':''}>${escH(p.text || p.id)}</option>`).join('');
+  const op     = q.condition ? q.condition.operator : 'eq';
+  const val    = q.condition ? (Array.isArray(q.condition.value) ? q.condition.value.join(',') : q.condition.value) : '';
+
   return `
-    <div class="toggle-row" style="margin-bottom:${has?'8px':'0'}">
-      <span class="toggle-label" style="font-size:11px;color:var(--fg-3)">Enable skip condition</span>
-      <label class="toggle"><input type="checkbox" class="cond-enable" ${has?'checked':''}><span class="toggle-track"></span></label>
+    <div class="toggle-row" style="margin-top:0">
+      <span class="toggle-label">Only show this question if…</span>
+      <label class="toggle">
+        <input type="checkbox" class="cond-on" ${has?'checked':''}>
+        <span class="toggle-track"></span>
+      </label>
     </div>
-    <div class="q-condition-block" style="display:${has?'flex':'none'}">
-      <div class="condition-row">
-        <div class="field-group" style="margin:0"><select class="cond-qid">${qOpts}</select></div>
-        <div class="field-group" style="margin:0"><select class="cond-op">${opOpts}</select></div>
-        <div class="field-group" style="margin:0"><input type="text" class="cond-val" value="${escH(Array.isArray(q.condition?.value)?q.condition.value.join(','):String(q.condition?.value??''))}"></div>
-      </div>
-      <div style="font-size:10px;color:var(--fg-3)">Numerics compared by value. For includes: comma-separate multiple options.</div>
+    <div class="cond-body" style="display:${has?'grid':'none'};grid-template-columns:2fr 1fr 1.5fr;gap:8px;margin-top:8px;">
+      <select class="cond-qid">${qOpts}</select>
+      <select class="cond-op">
+        <option value="eq"  ${op==='eq' ?'selected':''}>equals</option>
+        <option value="neq" ${op==='neq'?'selected':''}>not equals</option>
+        <option value="gt"  ${op==='gt' ?'selected':''}>&gt;</option>
+        <option value="gte" ${op==='gte'?'selected':''}>&gt;=</option>
+        <option value="lt"  ${op==='lt' ?'selected':''}>&lt;</option>
+        <option value="lte" ${op==='lte'?'selected':''}>&lt;=</option>
+        <option value="includes" ${op==='includes'?'selected':''}>includes</option>
+      </select>
+      <input type="text" class="cond-val" value="${escH(val)}" placeholder="value">
     </div>
   `;
 }
 
-function bindConditionFields(card, q, index) {
-  const enableChk = card.querySelector('.cond-enable');
-  const block     = card.querySelector('.q-condition-block');
-  if (!enableChk) return;
-  enableChk.addEventListener('change', () => {
-    if (enableChk.checked) {
-      const priors = state.ema.questions.slice(0, index).filter(p => p.type !== 'page_break');
-      q.condition = { question_id: priors[0]?.id||'', operator: 'gte', value: 50 };
-      block.style.display = 'flex';
-    } else { q.condition = null; block.style.display = 'none'; }
-    schedulePreview();
-  });
-  const qidSel = card.querySelector('.cond-qid');
+function bindConditionBlock(card, q) {
+  const toggle = card.querySelector('.cond-on');
+  const body   = card.querySelector('.cond-body');
+  const qSel   = card.querySelector('.cond-qid');
   const opSel  = card.querySelector('.cond-op');
   const valInp = card.querySelector('.cond-val');
-  if (qidSel) qidSel.addEventListener('change', () => { if (q.condition) q.condition.question_id = qidSel.value; schedulePreview(); });
+
+  if (!toggle) return;
+  toggle.addEventListener('change', () => {
+    if (toggle.checked) {
+      if (!q.condition) q.condition = { question_id: qSel.value, operator: 'eq', value: '' };
+      body.style.display = 'grid';
+    } else {
+      q.condition = null;
+      body.style.display = 'none';
+    }
+    schedulePreview();
+  });
+  if (qSel)   qSel.addEventListener('change',   () => { if (q.condition) q.condition.question_id = qSel.value; schedulePreview(); });
   if (opSel)  opSel.addEventListener('change',  () => { if (q.condition) q.condition.operator    = opSel.value; schedulePreview(); });
   if (valInp) valInp.addEventListener('input',  () => {
     if (!q.condition) return;
@@ -313,15 +372,21 @@ function addQ(obj) {
   if (cards.length && obj.type !== 'page_break') cards[cards.length-1].classList.add('expanded');
 }
 
-document.getElementById('add-slider-btn').addEventListener('click', () =>
-  addQ({ id: genQId(), type: 'slider',   text: '', min: 0, max: 100, step: 1, unit: null, anchors: ['',''], required: true, condition: null, block: 'both', windows: null }));
-document.getElementById('add-choice-btn').addEventListener('click', () =>
-  addQ({ id: genQId(), type: 'choice',   text: '', options: ['',''], required: true, condition: null, block: 'both', windows: null }));
-document.getElementById('add-check-btn').addEventListener('click',  () =>
-  addQ({ id: genQId(), type: 'checkbox', text: '', options: ['',''], required: true, condition: null, block: 'both', windows: null }));
-document.getElementById('add-text-btn').addEventListener('click',   () =>
-  addQ({ id: genQId(), type: 'text',     text: '', required: true, condition: null, block: 'both', windows: null }));
-document.getElementById('add-num-btn').addEventListener('click',    () =>
-  addQ({ id: genQId(), type: 'numeric',  text: '', required: true, condition: null, block: 'both', windows: null }));
-document.getElementById('add-page-btn').addEventListener('click',   () =>
-  addQ({ id: genQId(), type: 'page_break' }));
+// Button wiring — guarded with if (el) because not all buttons exist on every page
+(function wireAddButtons() {
+  const wire = (id, factory) => {
+    const b = document.getElementById(id);
+    if (b) b.addEventListener('click', () => addQ(factory()));
+  };
+  wire('add-slider-btn',  () => ({ id: genQId(), type: 'slider',   text: '', min: 0, max: 100, step: 1, unit: null, anchors: ['',''], required: true, condition: null, block: 'both', windows: null }));
+  wire('add-choice-btn',  () => ({ id: genQId(), type: 'choice',   text: '', options: ['',''], required: true, condition: null, block: 'both', windows: null }));
+  wire('add-check-btn',   () => ({ id: genQId(), type: 'checkbox', text: '', options: ['',''], required: true, condition: null, block: 'both', windows: null }));
+  wire('add-text-btn',    () => ({ id: genQId(), type: 'text',     text: '', required: true, condition: null, block: 'both', windows: null }));
+  wire('add-num-btn',     () => ({ id: genQId(), type: 'numeric',  text: '', required: true, condition: null, block: 'both', windows: null }));
+  wire('add-affect-btn',  () => ({ id: genQId(), type: 'affect_grid', text: 'Right now, how are you feeling?',
+                                    valence_labels: ['Unpleasant', 'Pleasant'],
+                                    arousal_labels: ['Deactivated', 'Activated'],
+                                    show_quadrant_labels: true,
+                                    required: true, condition: null, block: 'both', windows: null }));
+  wire('add-page-btn',    () => ({ id: genQId(), type: 'page_break' }));
+})();
