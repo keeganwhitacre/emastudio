@@ -427,10 +427,9 @@ function collectDeviceMetadata() {
   const urlSession = sessionId;
   const forceOverride = params.get('force') === '1';
 
-  if (urlPid) {
+if (urlPid) {
     pidInput.value = urlPid;
     document.getElementById('participant-input-group').style.display = 'none';
-    startBtn.disabled = false;
   }
   if (urlDay) {
     const dl = document.getElementById('day-label');
@@ -438,6 +437,27 @@ function collectDeviceMetadata() {
     dl.style.display = 'block';
   }
   pidInput.addEventListener('input', () => { startBtn.disabled = !pidInput.value.trim(); });
+ 
+  // Enable the start button whenever there's a usable PID, covering all cases:
+  //   1. URL supplied ?id=  (real participant link)
+  //   2. Preview mode       (no URL params, no one typing)
+  //   3. ?session=onboarding (PID collected later during consent)
+  if (pidInput.value.trim() || isPreview || sessionId === 'onboarding') {
+    if (isPreview) pidInput.value = pidInput.value.trim() || 'preview';
+    document.getElementById('participant-input-group').style.display = 'none';
+    startBtn.disabled = false;
+  }
+ 
+  // Enable the start button whenever there's a usable PID, covering all cases:
+  //   1. URL supplied ?id=  (real participant link)
+  //   2. Preview mode       (no URL params, no one typing)
+  //   3. ?session=onboarding (PID collected later during consent)
+  if (pidInput.value.trim() || isPreview || sessionId === 'onboarding') {
+    if (isPreview) pidInput.value = pidInput.value.trim() || 'preview';
+    document.getElementById('participant-input-group').style.display = 'none';
+    startBtn.disabled = false;
+  }
+
 
   // ---------------------------------------------------------------
   // COMPLETION LOCK CHECK (before anything else)
