@@ -107,11 +107,10 @@ let state = {
 // ---------------------------------------------------------------------------
 let previewSession = "onboarding";
 let previewDebounceTimer = null;
-let qIdCounter = 10;
-let wIdCounter = 10;
 
-function genQId() { return `q${++qIdCounter}`; }
-function genWId() { return `w${++wIdCounter}`; }
+// Use a random string to guarantee IDs never collide even after page reloads
+function genQId() { return 'q_' + Math.random().toString(36).substr(2, 6); }
+function genWId() { return 'w_' + Math.random().toString(36).substr(2, 6); }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -172,10 +171,8 @@ function buildConfig() {
     }
   });
 
-  // Emit hr_capture settings if any window uses an hr step
-  const hasHr = (cfg.ema?.scheduling?.windows || []).some(w =>
-    (w.phase_sequence || []).some(s => s.kind === 'hr')
-  );
+ // Emit hr_capture settings if any question is of type heart_rate
+  const hasHr = (cfg.ema?.questions || []).some(q => q.type === 'heart_rate');
   if (hasHr) cfg.modules.hr_capture = { enabled: true };
 
   return cfg;

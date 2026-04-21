@@ -404,9 +404,9 @@ function getRuntimeCss() {
     .rotary-dial-wrapper { position: relative; width: 280px; height: 280px; margin: 0 auto 40px; display: flex; align-items: center; justify-content: center; border-radius: 50%; user-select: none; }
     .rotary-dial-ticks { position: absolute; inset: 0; pointer-events: none; border-radius: 50%; z-index: 1; }
     .dial-tick { position: absolute; width: 2px; height: 6px; background: var(--border); top: 8px; left: 50%; transform-origin: 50% 132px; margin-left: -1px; transition: background 0.2s; }
-    .rotary-dial { width: 160px; height: 160px; border-radius: 50%; background: linear-gradient(145deg, #1f1f23, #121214); box-shadow: 8px 8px 16px rgba(0,0,0,0.8), -4px -4px 12px rgba(255,255,255,0.03), inset 0 2px 4px rgba(255,255,255,0.05); border: 1px solid var(--border); position: relative; touch-action: none; cursor: grab; z-index: 2; display: flex; align-items: center; justify-content: center; }
-    .rotary-dial:active { cursor: grabbing; background: linear-gradient(145deg, #1a1a1d, #0f0f11); }
-    .rotary-dial-indicator { position: absolute; top: 12px; left: 50%; width: 4px; height: 24px; background: var(--accent); border-radius: 2px; transform: translateX(-50%); box-shadow: 0 0 8px rgba(232, 113, 106, 0.6); }
+    .rotary-dial { width: 160px; height: 160px; border-radius: 50%; background: var(--bg-elevated); box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); border: 1px solid var(--border); position: relative; touch-action: none; cursor: grab; z-index: 2; display: flex; align-items: center; justify-content: center; }
+    .rotary-dial:active { cursor: grabbing; filter: brightness(0.9); }
+   .rotary-dial-indicator { position: absolute; top: 12px; left: 50%; width: 4px; height: 24px; background: var(--accent); border-radius: 2px; transform: translateX(-50%); box-shadow: 0 0 8px rgba(232, 113, 106, 0.6); }
     .dial-labels { display: flex; justify-content: space-between; width: 100%; max-width: 280px; margin: 0 auto; font-size: 0.85rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; }
     .movement-warning { position: fixed; top: calc(env(safe-area-inset-top, 24px) + 16px); left: 50%; transform: translateX(-50%) translateY(-20px); background: var(--bg-elevated); border: 1px solid var(--border); color: var(--fg); padding: 10px 20px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); font-size: 0.9rem; font-weight: 500; z-index: 50; pointer-events: none; opacity: 0; transition: all 0.3s ease; }
     .movement-warning.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -424,8 +424,8 @@ function getRuntimeCss() {
     .training-dial-wrapper { position: relative; width: 240px; height: 240px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; border-radius: 50%; user-select: none; flex-shrink: 0; }
     .training-dial-ticks { position: absolute; inset: 0; pointer-events: none; border-radius: 50%; }
     .training-tick { position: absolute; width: 2px; height: 5px; background: var(--border); top: 7px; left: 50%; transform-origin: 50% 113px; margin-left: -1px; }
-    .training-dial { width: 140px; height: 140px; border-radius: 50%; background: linear-gradient(145deg, #1f1f23, #121214); box-shadow: 8px 8px 16px rgba(0,0,0,0.8), -4px -4px 12px rgba(255,255,255,0.03), inset 0 2px 4px rgba(255,255,255,0.05); border: 1px solid var(--border); position: relative; touch-action: none; cursor: grab; z-index: 2; }
-    .training-dial:active { cursor: grabbing; }
+    .training-dial { width: 140px; height: 140px; border-radius: 50%; background: var(--bg-elevated); box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); border: 1px solid var(--border); position: relative; touch-action: none; cursor: grab; z-index: 2; }
+    .training-dial:active { cursor: grabbing; filter: brightness(0.9); }
     .training-dial-indicator { position: absolute; top: 10px; left: 50%; width: 4px; height: 22px; background: var(--accent); border-radius: 2px; transform: translateX(-50%); box-shadow: 0 0 8px rgba(232,113,106,0.6); }
     .training-dial-labels { display: flex; justify-content: space-between; width: 240px; margin: 0 auto 20px; font-size: 0.8rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.07em; flex-shrink: 0; }
     .training-status { text-align: center; font-size: 0.95rem; color: var(--fg-muted); min-height: 1.4em; transition: color 0.3s; flex-shrink: 0; margin-bottom: 8px; }

@@ -106,7 +106,6 @@ function buildWindowCard(w, i) {
           <span style="font-size:0.75rem;font-weight:600;color:var(--fg-muted);text-transform:uppercase;letter-spacing:0.07em;">Session Sequence</span>
           <div style="display:flex;gap:6px;">
             <button class="add-step-btn" data-kind="ema"  style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:#63b3ed;font-family:var(--font);font-size:10px;font-weight:700;cursor:pointer;letter-spacing:0.05em;">+ EMA</button>
-            <button class="add-step-btn" data-kind="hr"   style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:#f6c90e;font-family:var(--font);font-size:10px;font-weight:700;cursor:pointer;letter-spacing:0.05em;">+ HR</button>
             <button class="add-step-btn" data-kind="task" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--accent);font-family:var(--font);font-size:10px;font-weight:700;cursor:pointer;letter-spacing:0.05em;">+ Task</button>
           </div>
         </div>
@@ -151,16 +150,6 @@ function buildWindowCard(w, i) {
         const hasPost = w.phase_sequence.some(s => s.kind === 'ema' && s.block === 'post');
         const block = hasPost ? 'pre' : (w.phase_sequence.some(s => s.kind === 'ema' && s.block === 'pre') ? 'post' : 'pre');
         w.phase_sequence.push({ kind: 'ema', block });
-      } else if (kind === 'hr') {
-        const hrId = genQId();
-        w.phase_sequence.push({ kind: 'hr', duration_sec: 30, store_as: hrId });
-        // Auto-add a heart_rate question to the questions list so it shows up in conditions
-        state.ema.questions.push({
-          id: hrId, type: 'heart_rate', text: 'Heart Rate Capture',
-          duration_sec: 30, report_as: 'bpm',
-          required: true, condition: null, block: 'both', windows: [w.id]
-        });
-        if (typeof renderQuestions === 'function') renderQuestions();
       } else if (kind === 'task') {
         const enabledMods = state.modules.filter(m => m.enabled);
         const defaultId = enabledMods.length > 0 ? enabledMods[0].id : null;
@@ -224,7 +213,6 @@ function renderStepList(container, w) {
 function stepPill(step) {
   if (step.kind === 'ema')  return `<span class="phase-pill phase-pill-pre" style="${step.block==='post'?'background:rgba(154,215,160,0.15);color:#9ad7a0;border-color:rgba(154,215,160,0.3);':''}">${step.block === 'post' ? 'POST' : 'PRE'}</span>`;
   if (step.kind === 'task') return `<span class="phase-pill phase-pill-task">TASK</span>`;
-  if (step.kind === 'hr')   return `<span class="phase-pill" style="background:rgba(246,201,14,0.12);color:#f6c90e;border:1px solid rgba(246,201,14,0.3);">HR</span>`;
   return `<span class="phase-pill">${step.kind}</span>`;
 }
 
@@ -239,26 +227,7 @@ function buildStepControls(step, w, si) {
     sel.addEventListener('change', e => { step.block = e.target.value; syncLegacyPhases(w); schedulePreview(); });
     wrap.appendChild(sel);
 
-  } else if (step.kind === 'hr') {
-    const durRow = document.createElement('div');
-    durRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
-    durRow.innerHTML = `
-      <label style="font-size:0.8rem;color:var(--fg-muted);flex-shrink:0;">Duration</label>
-      <input type="number" class="hr-dur" value="${step.duration_sec||30}" min="10" max="120" style="width:70px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-family:var(--font-mono);font-size:0.85rem;outline:none;">
-      <label style="font-size:0.8rem;color:var(--fg-muted);">sec</label>
-      <label style="font-size:0.8rem;color:var(--fg-muted);margin-left:8px;">ID:</label>
-      <code style="font-size:0.78rem;color:var(--accent);background:var(--bg-elevated);padding:2px 5px;border-radius:3px;">${step.store_as||'—'}</code>
-    `;
-    durRow.querySelector('.hr-dur').addEventListener('input', e => {
-      step.duration_sec = parseInt(e.target.value) || 30;
-      // Sync to the matching question if it exists
-      const q = state.ema.questions.find(q => q.id === step.store_as);
-      if (q) q.duration_sec = step.duration_sec;
-      schedulePreview();
-    });
-    wrap.appendChild(durRow);
-
-  } else if (step.kind === 'task') {
+  } if (step.kind === 'task') {
     const enabledMods = state.modules.filter(m => m.enabled);
     const taskSel = document.createElement('select');
     taskSel.style.cssText = 'width:100%;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-family:var(--font);font-size:0.85rem;outline:none;';

@@ -303,7 +303,7 @@ const EMA = (function() {
     const container = document.createElement('div');
     container.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:16px;padding:8px 0;';
     container.innerHTML = `
-      <div class="progress-ring" style="width:160px;height:160px;">
+      <div class="progress-ring" style="width:160px;height:160px;position:relative;">
         <svg viewBox="0 0 180 180">
           <circle class="track" cx="90" cy="90" r="85"/>
           <circle class="fill" id="hr-ring-${uid}" cx="90" cy="90" r="85"/>
@@ -316,7 +316,7 @@ const EMA = (function() {
       <p style="font-size:0.88rem;color:var(--fg-muted);text-align:center;margin:0;">
         Cover the rear <strong style="color:var(--fg);">camera + flashlight</strong> with your fingertip
       </p>
-      <div id="hr-status-${uid}" style="font-size:0.82rem;color:var(--fg-muted);text-align:center;min-height:1.2em;"></div>
+      <div id="hr-status-${uid}" style="font-size:0.82rem;color:var(--accent-red);text-align:center;min-height:1.2em;font-weight:600;">Waiting for finger...</div>
     `;
     wrapper.appendChild(container);
  
@@ -330,7 +330,10 @@ const EMA = (function() {
  
     if (!core) {
       // Preview mode — simulate
-      if (statusEl) statusEl.textContent = 'Preview: simulating…';
+      if (statusEl) {
+        statusEl.textContent = 'Preview: simulating…';
+        statusEl.style.color = 'var(--fg-muted)';
+      }
       let t = 0;
       const sim = setInterval(() => {
         t++;
@@ -351,17 +354,26 @@ const EMA = (function() {
     const videoEl  = document.getElementById('video-feed');
     const canvasEl = document.getElementById('sampling-canvas');
     const bpms = [];
-    const startMs = Date.now();
+    
+    // Timer state variables
+    let captureStarted = false;
+    let startMs = 0;
     let done = false;
+    let currentSqi = 0;
+    let isFingerPresent = false;
+    let timer = null;
  
-    const timer = setInterval(() => {
+    // The actual countdown logic, extracted so we can start it conditionally
+    function runCaptureTick() {
       if (done) return;
       const elapsed   = (Date.now() - startMs) / 1000;
       const remaining = Math.max(0, durationSec - elapsed);
       if (ringEl) ringEl.style.strokeDashoffset = String(circ * (1 - Math.min(1, elapsed / durationSec)));
       if (statusEl) statusEl.textContent = `${Math.ceil(remaining)}s remaining`;
+      
       if (remaining <= 0) {
-        done = true; clearInterval(timer);
+        done = true; 
+        clearInterval(timer);
         core.BeatDetector.setCallbacks({ onBeatCb: null, onFingerChangeCb: null, onSqiUpdateCb: null, onPPGSampleCb: null });
         core.BeatDetector.stop().then(() => {
           const avg = bpms.length > 0
@@ -369,12 +381,44 @@ const EMA = (function() {
             : null;
           recordResponse(q.id, avg);
           if (bpmEl && avg) bpmEl.textContent = String(Math.round(avg));
-          if (statusEl) statusEl.textContent = avg ? `Captured: ${Math.round(avg)} BPM` : 'No signal detected';
+          if (statusEl) {
+             statusEl.textContent = avg ? `Captured: ${Math.round(avg)} BPM` : 'No signal detected';
+             statusEl.style.color = 'var(--fg-muted)';
+          }
           checkSubmit();
         });
       }
-    }, 250);
+    }
  
+    // The check function that evaluates if we should start the timer
+    function evaluateCaptureStart() {
+        if (captureStarted || done) return;
+        
+        if (!isFingerPresent) {
+            if (statusEl) {
+                statusEl.textContent = 'Waiting for finger...';
+                statusEl.style.color = 'var(--accent-red)';
+            }
+            return;
+        }
+        
+        if (currentSqi < 0.004) { // Same SQI_WARN threshold used in ePAT
+             if (statusEl) {
+                statusEl.textContent = 'Adjust pressure gently...';
+                statusEl.style.color = 'var(--accent-red)';
+            }
+            return;
+        }
+
+        // Both conditions met! Start the capture.
+        captureStarted = true;
+        startMs = Date.now();
+        if (statusEl) {
+            statusEl.style.color = 'var(--accent)';
+        }
+        timer = setInterval(runCaptureTick, 250);
+    }
+
     core.BeatDetector.start({
       video: videoEl, canvas: canvasEl,
       onBeatCb: (beat) => {
@@ -382,12 +426,15 @@ const EMA = (function() {
         if (bpmEl) bpmEl.textContent = String(Math.round(beat.averageBPM));
       },
       onFingerChangeCb: (present) => {
-        if (!done && statusEl) statusEl.textContent = present ? 'Detecting…' : 'Place finger on camera and flashlight';
+        isFingerPresent = present;
+        evaluateCaptureStart();
       },
-      onSqiUpdateCb: () => {},
+      onSqiUpdateCb: (sqi) => {
+          currentSqi = sqi;
+          evaluateCaptureStart();
+      },
       onPPGSampleCb: () => {}
     }).catch(() => {
-      clearInterval(timer);
       recordResponse(q.id, null);
       if (statusEl) statusEl.textContent = 'Camera unavailable';
       checkSubmit();

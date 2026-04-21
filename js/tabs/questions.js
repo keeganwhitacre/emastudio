@@ -16,10 +16,22 @@
 function renderQuestions() {
   const list = document.getElementById('question-list');
   list.innerHTML = '';
-  state.ema.questions.forEach((q, i) => list.appendChild(buildQCard(q, i)));
+  
+  let displayNum = 1; // Track the visual question number
+  
+  state.ema.questions.forEach((q, i) => {
+    // Pass the displayNum to the card builder
+    list.appendChild(buildQCard(q, i, displayNum));
+    
+    // Only increment the number if it's an actual question
+    if (q.type !== 'page_break') {
+      displayNum++;
+    }
+  });
 }
 
-function buildQCard(q, index) {
+// Add displayNum as the third argument here
+function buildQCard(q, index, displayNum) {
   const card = document.createElement('div');
   card.className = 'q-card';
   card.dataset.qid = q.id;
@@ -68,15 +80,21 @@ function buildQCard(q, index) {
   card.innerHTML = `
     <div class="q-header">
       <span class="q-drag-handle">⠿</span>
-      <span class="q-num">${index + 1}</span>
+      <span class="q-num">${displayNum}</span>
       <span class="q-preview-text">${escH(q.text) || '<em style="color:var(--fg-3)">(no text)</em>'}</span>
       <span class="q-type-badge ${q.type}" style="${q.type==='heart_rate'?'background:rgba(246,201,14,0.12);color:#f6c90e;':''}"> ${typeLabel}</span>
       <svg class="q-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l4 4 4-4"/></svg>
     </div>
     <div class="q-body">
       <div class="field-group" style="padding-top:10px">
-        <label class="field-label">Label / Caption</label>
+        <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+            <label class="field-label">Label / Caption</label>
+            <span style="font-size: 10px; color: var(--fg-muted); font-family: monospace;">ID: ${q.id}</span>
+        </div>
         <input type="text" class="q-text" value="${escH(q.text)}" placeholder="${q.type === 'heart_rate' ? 'e.g. Measuring your heart rate…' : 'Enter question…'}">
+        <div class="field-hint" style="margin-top:4px">
+          To display this answer in later questions, type <code style="color:var(--accent)">{{${q.id}}}</code>
+        </div>
       </div>
 
       ${q.type === 'slider'                              ? buildSliderFields(q)     : ''}
