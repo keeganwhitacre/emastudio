@@ -259,10 +259,11 @@ async function buildStudyHtml({ configInline, previewMode = false, previewSessio
   const runtimeCss = getRuntimeCss();
   const studyJs = stitchStudyJs(cfg, { configInline, previewMode, previewSession: _ps });
   const configTag = configInline ? `<script>window.__CONFIG__ = ${JSON.stringify(cfg)};<\/script>` : '';
-  const coreTag   = cfg.modules?.epat ? `<script>\n${templates.epatCore}\n<\/script>` : '';
+  const needsCore = cfg.modules?.epat || cfg.modules?.hr_capture;
+  const coreTag   = needsCore ? `<script>\n${templates.epatCore}\n<\/script>` : '';
   const cssTag    = `<style>:root{${themeCSS}}${runtimeCss}</style>`;
   const studyTag  = `<script>\n${studyJs}\n<\/script>`;
-  return buildHtmlShell({ cfg, themeCSS, includeEpatCore: !!cfg.modules?.epat, configTag, coreTag, studyTag, cssTag });
+  return buildHtmlShell({ cfg, themeCSS, includeEpatCore: !!needsCore, configTag, coreTag, studyTag, cssTag });
 }
 
 async function buildStaticBundle() {
@@ -272,17 +273,18 @@ async function buildStaticBundle() {
   const runtimeCss = getRuntimeCss();
   const studyJs = stitchStudyJs(cfg, { configInline: false, previewMode: false });
   const configTag = '';
-  const coreTag   = cfg.modules?.epat ? `<script src="js/epat-core.js"></script>` : '';
+  const needsCore = cfg.modules?.epat || cfg.modules?.hr_capture;
+  const coreTag   = needsCore ? `<script src="js/epat-core.js"></script>` : '';
   const cssTag    = `<link rel="stylesheet" href="css/study.css">`;
   const studyTag  = `<script src="js/study.js"></script>`;
-  const html = buildHtmlShell({ cfg, themeCSS, includeEpatCore: !!cfg.modules?.epat, configTag, coreTag, studyTag, cssTag });
+  const html = buildHtmlShell({ cfg, themeCSS, includeEpatCore: !!needsCore, configTag, coreTag, studyTag, cssTag });
   const files = [
     { path: 'index.html',    content: html },
     { path: 'config.json',   content: JSON.stringify(cfg, null, 2) },
     { path: 'css/study.css', content: runtimeCss },
     { path: 'js/study.js',   content: studyJs }
   ];
-  if (cfg.modules?.epat) files.push({ path: 'js/epat-core.js', content: templates.epatCore });
+  if (needsCore) files.push({ path: 'js/epat-core.js', content: templates.epatCore });
   files.push({ path: 'README.txt', content: `${cfg.study.name} — deploy to any static host.\nParticipants open: index.html?id=<PID>&day=<N>&session=<windowId>\n` });
   return { files };
 }
