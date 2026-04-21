@@ -749,10 +749,6 @@ if (urlPid) {
         }
         console.warn(`Unknown phase token: ${phase}. Skipping.`);
         advancePhase();
-
-      default:
-        console.warn(`Unknown phase token: ${phase}. Skipping.`);
-        advancePhase();
     }
   }
 
