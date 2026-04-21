@@ -303,6 +303,9 @@ const EMA = (function() {
     const container = document.createElement('div');
     container.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:16px;padding:8px 0;';
     container.innerHTML = `
+      <div style="display:flex; justify-content:center; margin-bottom: 4px;">
+        <canvas id="hr-preview-${uid}" style="width:100px; height:100px; border-radius:50%; border:3px solid var(--fg); background:#000; transition: border-color 0.3s, box-shadow 0.3s;"></canvas>
+      </div>
       <div class="progress-ring" style="width:160px;height:160px;position:relative;">
         <svg viewBox="0 0 180 180">
           <circle class="track" cx="90" cy="90" r="85"/>
@@ -316,7 +319,7 @@ const EMA = (function() {
       <p style="font-size:0.88rem;color:var(--fg-muted);text-align:center;margin:0;">
         Cover the rear <strong style="color:var(--fg);">camera + flashlight</strong> with your fingertip
       </p>
-      <div id="hr-status-${uid}" style="font-size:0.82rem;color:var(--accent-red);text-align:center;min-height:1.2em;font-weight:600;">Waiting for finger...</div>
+      <div id="hr-status-${uid}" style="font-size:0.85rem;color:var(--accent-red);text-align:center;min-height:1.2em;font-weight:600;">Waiting for finger...</div>
     `;
     wrapper.appendChild(container);
  
@@ -327,6 +330,16 @@ const EMA = (function() {
     const ringEl   = container.querySelector(`#hr-ring-${uid}`);
     const bpmEl    = container.querySelector(`#hr-bpm-${uid}`);
     const statusEl = container.querySelector(`#hr-status-${uid}`);
+    
+    // Setup Canvas for Preview
+    const previewCanvas = container.querySelector(`#hr-preview-${uid}`);
+    let previewCtx = null;
+    if (previewCanvas) {
+      const dpr = window.devicePixelRatio || 1;
+      previewCanvas.width = 100 * dpr;
+      previewCanvas.height = 100 * dpr;
+      previewCtx = previewCanvas.getContext('2d');
+    }
  
     if (!core) {
       // Preview mode — simulate
@@ -363,7 +376,6 @@ const EMA = (function() {
     let isFingerPresent = false;
     let timer = null;
  
-    // The actual countdown logic, extracted so we can start it conditionally
     function runCaptureTick() {
       if (done) return;
       const elapsed   = (Date.now() - startMs) / 1000;
@@ -385,12 +397,14 @@ const EMA = (function() {
              statusEl.textContent = avg ? `Captured: ${Math.round(avg)} BPM` : 'No signal detected';
              statusEl.style.color = 'var(--fg-muted)';
           }
+          if (previewCanvas) {
+            previewCanvas.style.borderColor = 'var(--accent-green)';
+          }
           checkSubmit();
         });
       }
     }
  
-    // The check function that evaluates if we should start the timer
     function evaluateCaptureStart() {
         if (captureStarted || done) return;
         
@@ -399,13 +413,21 @@ const EMA = (function() {
                 statusEl.textContent = 'Waiting for finger...';
                 statusEl.style.color = 'var(--accent-red)';
             }
+            if (previewCanvas) {
+                previewCanvas.style.borderColor = 'var(--fg)';
+                previewCanvas.style.boxShadow = 'none';
+            }
             return;
         }
         
-        if (currentSqi < 0.004) { // Same SQI_WARN threshold used in ePAT
+        if (currentSqi < 0.004) { 
              if (statusEl) {
-                statusEl.textContent = 'Adjust pressure gently...';
+                statusEl.textContent = 'Make the circle red...';
                 statusEl.style.color = 'var(--accent-red)';
+            }
+            if (previewCanvas) {
+                previewCanvas.style.borderColor = 'var(--accent-red)';
+                previewCanvas.style.boxShadow = '0 0 20px rgba(255, 69, 58, 0.3)';
             }
             return;
         }
@@ -414,7 +436,12 @@ const EMA = (function() {
         captureStarted = true;
         startMs = Date.now();
         if (statusEl) {
+            statusEl.textContent = 'Acquiring signal... hold still';
             statusEl.style.color = 'var(--accent)';
+        }
+        if (previewCanvas) {
+            previewCanvas.style.borderColor = 'var(--fg-muted)';
+            previewCanvas.style.boxShadow = 'none';
         }
         timer = setInterval(runCaptureTick, 250);
     }
@@ -433,7 +460,12 @@ const EMA = (function() {
           currentSqi = sqi;
           evaluateCaptureStart();
       },
-      onPPGSampleCb: () => {}
+      onPPGSampleCb: () => {
+        // Draw the live video feed into the preview circle!
+        if (videoEl && videoEl.readyState === videoEl.HAVE_ENOUGH_DATA && previewCtx) {
+          previewCtx.drawImage(videoEl, 0, 0, previewCanvas.width, previewCanvas.height);
+        }
+      }
     }).catch(() => {
       recordResponse(q.id, null);
       if (statusEl) statusEl.textContent = 'Camera unavailable';
