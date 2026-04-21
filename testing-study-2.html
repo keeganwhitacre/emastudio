@@ -1,0 +1,3101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <title>Testing</title>
+  <script>window.__CONFIG__ = {"schema_version":"1.4.0","study":{"name":"Testing","institution":"","theme":"light","accent_color":"#7b219f","output_format":"csv","completion_lock":true,"resume_enabled":true,"greetings":{"w1":"Good Morning","w2":"Check-In","w3":"Good Evening"}},"onboarding":{"enabled":true,"ask_schedule":true,"consent_text":"<h3>1. Purpose</h3>\n<p>This research investigates individual differences in how people perceive internal body signals such as heartbeats, and how this relates to mood and daily experience.</p>\n<h3>2. What You Will Do</h3>\n<p>You will complete brief daily check-ins for the duration of the study. You will also complete a task where you adjust an auditory tone to match your heartbeat using a dial.</p>\n<h3>3. Confidentiality</h3>\n<p>All data are stored under a participant ID number with no identifying information.</p>\n<h3>4. Contact</h3>\n<p>For questions about this study, contact the research team.</p>"},"ema":{"questions":[{"id":"q1","type":"slider","text":"Right now, my mood is…","min":0,"max":10,"step":1,"unit":null,"anchors":["Unpleasant","Pleasant"],"required":true,"condition":null,"block":"both","windows":null},{"id":"q12","type":"page_break","windows":null},{"id":"q2","type":"slider","text":"Right now, my energy level is…","min":0,"max":10,"step":1,"unit":null,"anchors":["Low / Calm","High / Activated"],"required":true,"condition":null,"block":"pre","windows":null},{"id":"q13","type":"page_break","windows":null},{"id":"q3","type":"choice","text":"What are you doing right now?","options":["Resting","Working / Studying","Socializing","Exercising","Eating","Commuting","Other"],"required":true,"condition":null,"block":"pre","windows":null},{"id":"q14","type":"page_break","windows":null},{"id":"q11","type":"affect_grid","text":"Right now, how are you feeling?","valence_labels":["Unpleasant","Pleasant"],"arousal_labels":["Deactivated","Activated"],"show_quadrant_labels":true,"required":true,"condition":null,"block":"both","windows":null}],"scheduling":{"study_days":14,"daily_prompts":3,"days_of_week":[1,2,3,4,5],"windows":[{"id":"w1","label":"Session 1","start":"08:00","end":"10:00","phases":{"pre":true,"task":"epat","post":true},"phase_sequence":[{"kind":"ema","block":"pre"},{"kind":"task","id":"epat"},{"kind":"ema","block":"post"}]},{"id":"w2","label":"Afternoon","start":"13:00","end":"15:00","phases":{"pre":true,"task":null,"post":false},"phase_sequence":[{"kind":"ema","block":"pre"}]},{"id":"w3","label":"Evening","start":"19:00","end":"21:00","phases":{"pre":true,"task":null,"post":false},"phase_sequence":[{"kind":"ema","block":"pre"}]}],"timing":{"expiry_minutes":60,"grace_minutes":10}}},"modules":{"epat":{"trials":20,"trial_duration_sec":30,"retry_budget":30,"sqi_threshold":0.3,"confidence_ratings":true,"two_phase_practice":true,"body_map":true}}};</script>
+  <script>
+/* ============================================================
+ * epat-core.js
+ * ------------------------------------------------------------
+ * the ecological phase adjustment task — core signal pipeline.
+ *
+ * this file is the validated ppg + audio + motion stack,
+ * extracted from the study code so it can be reused across
+ * entry points (task, onboarding, validation) without copy-paste.
+ *
+ * cnap-validated against a ground-truth hemodynamic reference.
+ * do not modify without re-running the validation sync session.
+ *
+ * exposes a single global namespace: window.ePATCore
+ *   - WakeLockCtrl   : screen wake lock (ios/android)
+ *   - WabpDetector   : zong et al. 2003 wabp onset algorithm
+ *   - BeatDetector   : full ppg pipeline (camera → filter → wabp → beats)
+ *   - AudioEngine    : web audio scheduler with refractory gate
+ *   - MotionDetector : accelerometer movement watchdog
+ *
+ * api contract notes:
+ *   - BeatDetector.setCallbacks() does NOT reset filter/detector state.
+ *     this is deliberate — filter continuity across trials is the whole
+ *     reason the callbacks are swappable mid-stream.
+ *   - only BeatDetector.stop() fully tears down camera + filter state.
+ *   - all timestamps use performance.now() (monotonic, ms since page load).
+ *     wall-clock anchoring is the responsibility of the caller.
+ * ============================================================ */
+
+(function () {
+
+  // ============================================================
+  // WAKE LOCK CONTROLLER
+  // ============================================================
+  const WakeLockCtrl = (function() {
+    let wl = null;
+    return {
+      async request() {
+        try { if ("wakeLock" in navigator) { wl = await navigator.wakeLock.request("screen"); } } catch (e) {}
+      },
+      release() {
+        try { if (wl) { wl.release(); wl = null; } } catch (e) {}
+      }
+    };
+  })();
+
+  // ============================================================
+  // WABP ONSET DETECTOR (Zong et al. 2003, adapted for camera PPG)
+  // ------------------------------------------------------------
+  // sample-indexed, not time-indexed. reset() converts time constants
+  // to sample counts based on the current framerate. stay close to the
+  // paper's defaults — aggressive tuning diverges from published behavior.
+  // ============================================================
+  const WabpDetector = (function () {
+    let SAMPLE_RATE, EYE_CLS_SAMPLES, SLP_WINDOW, NDP_SAMPLES, LPERIOD_SAMPLES, INIT_WINDOW;
+    const TM_FLOOR_RATIO = 0.05;
+
+    let slopeBuffer = [], slopeEnergyBuffer = [];
+    let sampleIndex = 0, learning = true, learningComplete = false;
+    let T0 = 0, Ta = 0, T1 = 0, Tm = 0;
+    let lastOnsetIndex = -Infinity, noDetectTimer = 0, prevSample = 0;
+
+    function reset(sampleRate) {
+      SAMPLE_RATE      = sampleRate || 30;
+      EYE_CLS_SAMPLES  = Math.round(0.25  * SAMPLE_RATE);
+      SLP_WINDOW       = Math.max(2, Math.round(0.13 * SAMPLE_RATE));
+      NDP_SAMPLES      = Math.round(2.5   * SAMPLE_RATE);
+      LPERIOD_SAMPLES  = Math.round(8.0   * SAMPLE_RATE);
+      INIT_WINDOW      = Math.round(8.0   * SAMPLE_RATE);
+      slopeBuffer = []; slopeEnergyBuffer = [];
+      sampleIndex = 0; learning = true; learningComplete = false;
+      T0 = 0; Ta = 0; T1 = 0; Tm = 0;
+      lastOnsetIndex = -Infinity; noDetectTimer = 0; prevSample = 0;
+    }
+
+    function processSample(filteredSample) {
+      sampleIndex++;
+      const dy = Math.max(0, filteredSample - prevSample);
+      prevSample = filteredSample;
+      slopeBuffer.push(dy);
+
+      let slopeEnergy = 0;
+      const startIdx = Math.max(0, slopeBuffer.length - SLP_WINDOW);
+      for (let i = startIdx; i < slopeBuffer.length; i++) slopeEnergy += slopeBuffer[i];
+      slopeEnergyBuffer.push(slopeEnergy);
+
+      const MAX_BUF = SAMPLE_RATE * 10;
+      if (slopeBuffer.length > MAX_BUF) {
+        slopeBuffer = slopeBuffer.slice(-MAX_BUF);
+        slopeEnergyBuffer = slopeEnergyBuffer.slice(-MAX_BUF);
+      }
+
+      if (learning) {
+        if (sampleIndex === INIT_WINDOW) {
+          let sum = 0;
+          for (let i = 0; i < slopeEnergyBuffer.length; i++) sum += slopeEnergyBuffer[i];
+          T0 = sum / slopeEnergyBuffer.length;
+          Ta = 3 * T0; Tm = T0 * TM_FLOOR_RATIO;
+        }
+        if (sampleIndex <= LPERIOD_SAMPLES) { T1 = 2 * T0; return { detected: false }; }
+        else { learning = false; learningComplete = true; T1 = Ta / 3; }
+      }
+      if (!learningComplete) return { detected: false };
+
+      if (sampleIndex - lastOnsetIndex < EYE_CLS_SAMPLES) return { detected: false };
+
+      if (slopeEnergy > T1) {
+        const seLen = slopeEnergyBuffer.length;
+        const halfEye = Math.floor(EYE_CLS_SAMPLES / 2);
+        if (seLen >= 3) {
+          const s0 = slopeEnergyBuffer[seLen - 3], s1 = slopeEnergyBuffer[seLen - 2], s2 = slopeEnergyBuffer[seLen - 1];
+          if (s1 >= s0 && s1 >= s2 && s1 > T1) {
+            let maxVal = s1, minVal = s1;
+            for (let j = seLen - 2; j >= Math.max(0, seLen - 2 - halfEye); j--) {
+              if (slopeEnergyBuffer[j] > maxVal) maxVal = slopeEnergyBuffer[j];
+              if (slopeEnergyBuffer[j] < minVal) minVal = slopeEnergyBuffer[j];
+            }
+            if (maxVal > minVal * 1.5 + 1e-6) {
+              const onsetThresh = maxVal * 0.02;
+              let onsetIdx = seLen - 2;
+              for (let j = seLen - 2; j >= Math.max(0, seLen - 2 - halfEye); j--) {
+                if (j > 0 && (slopeEnergyBuffer[j] - slopeEnergyBuffer[j - 1]) < onsetThresh) { onsetIdx = j; break; }
+              }
+              Ta += (maxVal - Ta) / 10; T1 = Ta / 3;
+              lastOnsetIndex = sampleIndex; noDetectTimer = 0;
+              const framesAgo = (seLen - 1) - onsetIdx;
+              return { detected: true, onsetIndex: sampleIndex - framesAgo, peakEnergy: maxVal };
+            }
+          }
+        }
+      }
+
+      noDetectTimer++;
+      if (noDetectTimer > NDP_SAMPLES && Ta > Tm) { Ta -= Ta * 0.005; if (Ta < Tm) Ta = Tm; T1 = Ta / 3; }
+      return { detected: false };
+    }
+
+    return { reset, processSample };
+  })();
+
+  // ============================================================
+  // PPG BEAT DETECTOR (WABP onset, dynamic framerate, rAF loop)
+  // ------------------------------------------------------------
+  // pipeline: camera red channel → iir bandpass 0.67–3.33 hz → wabp.
+  // dicrotic rejection via median-anchored 60% gate. median not mean
+  // so a single fast outlier can't poison the running period.
+  // camera selection excludes front + physical lens labels (ultra/tele)
+  // + composite virtuals (dual/triple) so ios doesn't hand us a lens
+  // that can't drive torch.
+  // ============================================================
+  const BeatDetector = (function () {
+    const IMAGE_SIZE = 40, BUFFER_SECONDS = 8;
+    const FINGER_BRIGHTNESS_MIN = 0.15, FINGER_BRIGHTNESS_MAX = 0.98, FINGER_RED_DOMINANCE = 0.38;
+
+    let video = null, canvas = null, ctx = null, stream = null, track = null;
+    let running = false, animFrameId = null, actualFPS = 30, startTime = 0, lastFrameTime = 0;
+    let fingerPresent = false, fingerDebounceCount = 0;
+    const FINGER_DEBOUNCE_FRAMES = 8;
+
+    let rawBuffer = [], timeBuffer = [], filteredBuffer = [];
+    let instantPeriod = 0, averagePeriod = 0, lastBeatTime = 0;
+    let prevAcceptedBeatTime = 0, prevAcceptedIbi = 0;
+    let recentPeriods = [];
+    const MAX_RECENT_PERIODS = 10;
+
+    // --- dicrotic notch rejection state ---
+    let dicroticRejectCount = 0;
+
+    // --- sqi (signal quality index) via perfusion index ---
+    let lastSqiTime = 0, currentSqi = 0;
+    const SQI_INTERVAL_MS = 1000;
+    const SQI_WINDOW_S = 2;
+
+    // --- frame timing diagnostics (vfr detection) ---
+    let frameDeltaBuffer = [], frameDropCount = 0, totalFrames = 0;
+
+    // --- brightness clipping diagnostics (isp auto-exposure) ---
+    let clipCount = 0, clipTotal = 0;
+
+    // bandpass filter — coefficients recomputed when actualFPS is known
+    let HP_ALPHA = 0, LP_ALPHA = 0, hpState = { x1: 0, y1: 0 }, lpState = { y1: 0 };
+
+    function computeFilterCoeffs(sr) {
+      const hpRC = 1 / (2 * Math.PI * 0.67), lpRC = 1 / (2 * Math.PI * 3.33);
+      HP_ALPHA = hpRC / (hpRC + 1 / sr); LP_ALPHA = (1 / sr) / (lpRC + 1 / sr);
+    }
+    function highpass(x) { const y = HP_ALPHA * (hpState.y1 + x - hpState.x1); hpState.x1 = x; hpState.y1 = y; return y; }
+    function lowpass(x) { const y = lpState.y1 + LP_ALPHA * (x - lpState.y1); lpState.y1 = y; return y; }
+    function bandpass(x) { return lowpass(highpass(x)); }
+    function resetFilters() { hpState = { x1: 0, y1: 0 }; lpState = { y1: 0 }; }
+
+    function getMedian(arr) {
+      if (!arr.length) return 0;
+      const s = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(s.length / 2);
+      return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+    }
+
+    // callbacks — swappable mid-stream via setCallbacks()
+    let onBeat = null, onFingerChange = null, onPPGSample = null, onSqiUpdate = null, onDicroticReject = null;
+
+    function extractRedMean() {
+      ctx.drawImage(video, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+      const d = ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE).data;
+      let r = 0, g = 0, b = 0, n = 0;
+      for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+      const rMean = r / n / 255, gMean = g / n / 255, bMean = b / n / 255;
+      const brightness = (rMean + gMean + bMean) / 3;
+      const redRatio = rMean / (rMean + gMean + bMean + 1e-6);
+
+      // clipping diagnostic — isp drove exposure to the rails
+      clipTotal++;
+      if (rMean > 0.97) clipCount++;
+
+      const looksLikeFinger = brightness > FINGER_BRIGHTNESS_MIN && brightness < FINGER_BRIGHTNESS_MAX && redRatio > FINGER_RED_DOMINANCE;
+      if (looksLikeFinger === fingerPresent) fingerDebounceCount = 0;
+      else {
+        fingerDebounceCount++;
+        if (fingerDebounceCount >= FINGER_DEBOUNCE_FRAMES) {
+          fingerPresent = looksLikeFinger;
+          fingerDebounceCount = 0;
+          if (onFingerChange) onFingerChange(fingerPresent);
+        }
+      }
+      return rMean;
+    }
+
+    function computeSqi() {
+      const windowSamples = Math.round(actualFPS * SQI_WINDOW_S);
+      if (rawBuffer.length < windowSamples) return 0;
+      const window = rawBuffer.slice(-windowSamples);
+      let min = window[0], max = window[0], sum = 0;
+      for (let i = 0; i < window.length; i++) {
+        if (window[i] < min) min = window[i];
+        if (window[i] > max) max = window[i];
+        sum += window[i];
+      }
+      const mean = sum / window.length;
+      if (mean < 1e-6) return 0;
+      return (max - min) / mean; // perfusion index
+    }
+
+    function processFrame() {
+      if (!running) return;
+      const now = performance.now();
+      const rawValue = extractRedMean(), filtered = bandpass(rawValue);
+      const BUFFER_SIZE = Math.round(actualFPS * BUFFER_SECONDS);
+
+      // track actual inter-frame timing
+      totalFrames++;
+      if (lastFrameTime > 0) {
+        const dt = now - lastFrameTime;
+        frameDeltaBuffer.push(dt);
+        if (frameDeltaBuffer.length > 300) frameDeltaBuffer.shift();
+        const expectedInterval = 1000 / actualFPS;
+        if (dt > expectedInterval * 2) frameDropCount++;
+      }
+      lastFrameTime = now;
+
+      rawBuffer.push(rawValue); timeBuffer.push(now); filteredBuffer.push(filtered);
+      if (rawBuffer.length > BUFFER_SIZE) { rawBuffer.shift(); timeBuffer.shift(); filteredBuffer.shift(); }
+      if (onPPGSample) onPPGSample(filtered);
+
+      if (fingerPresent && (now - lastSqiTime > SQI_INTERVAL_MS)) {
+        currentSqi = computeSqi();
+        lastSqiTime = now;
+        if (onSqiUpdate) onSqiUpdate(currentSqi);
+      }
+
+      if (fingerPresent && (now - startTime > 2000)) {
+        const result = WabpDetector.processSample(filtered);
+        if (result.detected) {
+          const beatTime = now - (1000 / actualFPS);
+          const interval = beatTime - lastBeatTime;
+
+          // signal drop re-anchor
+          if (lastBeatTime === 0 || interval > 2500) {
+            lastBeatTime = beatTime;
+            recentPeriods = [];
+            animFrameId = requestAnimationFrame(processFrame);
+            return;
+          }
+
+          // absolute physiological floor — 350ms = 171bpm, no resting human
+          if (interval < 350) {
+            animFrameId = requestAnimationFrame(processFrame);
+            return;
+          }
+
+          // median-anchored dicrotic gate
+          let isDicrotic = false;
+          const DICROTIC_MIN_PERIODS = 3;
+          if (recentPeriods.length >= DICROTIC_MIN_PERIODS) {
+            const medianMs = getMedian(recentPeriods) * 1000;
+            // 60% allows deep-breath rsa but blocks the notch (fires ~30–45% through cycle)
+            if (interval < medianMs * 0.60) isDicrotic = true;
+          }
+
+          if (isDicrotic) {
+            dicroticRejectCount++;
+            if (onDicroticReject) onDicroticReject({
+              time: beatTime,
+              rejectedIbi: interval,
+              expectedPeriod: getMedian(recentPeriods) * 1000
+            });
+            // do NOT update lastBeatTime — notch is ignored
+          } else {
+            prevAcceptedBeatTime = lastBeatTime;
+            prevAcceptedIbi = interval;
+            lastBeatTime = beatTime;
+
+            instantPeriod = interval / 1000;
+            const instantBPM = 60 / instantPeriod;
+
+            recentPeriods.push(instantPeriod);
+            if (recentPeriods.length > MAX_RECENT_PERIODS) recentPeriods.shift();
+
+            averagePeriod = recentPeriods.reduce((a, b) => a + b, 0) / recentPeriods.length;
+            const averageBPM = 60 / averagePeriod;
+
+            if (onBeat) onBeat({ instantBPM, averageBPM, instantPeriod, averagePeriod, time: beatTime });
+          }
+        }
+      }
+
+      animFrameId = requestAnimationFrame(processFrame);
+    }
+
+    async function startCamera() {
+      if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+
+      // prime permissions — ios enumerateDevices returns empty labels before permission
+      try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        tempStream.getTracks().forEach(t => t.stop());
+      } catch (e) { /* ignore */ }
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter((d) => d.kind === "videoinput");
+      let torchWorking = false;
+
+      // rank cameras — exclude front, virtual composites, and individual physical lenses
+      const ranked = [];
+      for (const cam of cameras) {
+        const label = (cam.label || "").toLowerCase();
+        if (label.includes("front") || label.includes("facetime")) continue;
+        if (label.includes("dual") || label.includes("triple")) continue;
+        if (label.includes("ultra") || label.includes("tele")) continue;
+        ranked.push(cam);
+      }
+      // fallback: if filtering killed everything, try any back camera
+      if (ranked.length === 0) {
+        for (const cam of cameras) {
+          const label = (cam.label || "").toLowerCase();
+          if (!label.includes("front") && !label.includes("facetime")) ranked.push(cam);
+        }
+      }
+
+      for (const cam of ranked) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: { exact: cam.deviceId },
+              width:  { ideal: 640 },
+              height: { ideal: 480 },
+              frameRate: { ideal: 60, max: 120 }
+            }
+          });
+          track = stream.getVideoTracks()[0];
+          // try torch
+          try {
+            const caps = track.getCapabilities ? track.getCapabilities() : {};
+            if (caps.torch) {
+              await track.applyConstraints({ advanced: [{ torch: true }] });
+              torchWorking = true;
+              break;
+            }
+          } catch (e) {}
+          // no torch — release and keep looking
+          stream.getTracks().forEach(t => t.stop()); stream = null; track = null;
+        } catch (e) { /* try next */ }
+      }
+
+      if (!stream) throw new Error("no usable rear camera with torch");
+      if (!torchWorking) throw new Error("torch not available on any rear camera");
+
+      video.srcObject = stream;
+      await video.play();
+
+      const settings = track.getSettings();
+      actualFPS = settings.frameRate || 30;
+
+      return { actualFPS, label: track.label, torchWorking };
+    }
+
+    async function stopCamera() {
+      try {
+        if (track && track.getCapabilities && track.getCapabilities().torch) {
+          await track.applyConstraints({ advanced: [{ torch: false }] });
+        }
+      } catch (e) {}
+      if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; track = null; }
+      if (video) video.srcObject = null;
+    }
+
+    return {
+      async start(opts) {
+        video  = opts.video;
+        canvas = opts.canvas;
+        ctx    = canvas.getContext("2d", { willReadFrequently: true });
+        canvas.width = IMAGE_SIZE; canvas.height = IMAGE_SIZE;
+
+        onBeat           = opts.onBeatCb || null;
+        onFingerChange   = opts.onFingerChangeCb || null;
+        onPPGSample      = opts.onPPGSampleCb || null;
+        onSqiUpdate      = opts.onSqiUpdateCb || null;
+        onDicroticReject = opts.onDicroticRejectCb || null;
+
+        await startCamera();
+
+        // reset all running state
+        rawBuffer = []; timeBuffer = []; filteredBuffer = [];
+        recentPeriods = []; instantPeriod = 0; averagePeriod = 0;
+        lastBeatTime = 0; prevAcceptedBeatTime = 0; prevAcceptedIbi = 0;
+        fingerPresent = false; fingerDebounceCount = 0;
+        lastSqiTime = 0; currentSqi = 0;
+        frameDeltaBuffer = []; frameDropCount = 0; totalFrames = 0;
+        clipCount = 0; clipTotal = 0;
+        dicroticRejectCount = 0;
+
+        computeFilterCoeffs(actualFPS); resetFilters();
+        WabpDetector.reset(actualFPS);
+
+        startTime = performance.now(); lastFrameTime = 0; running = true;
+        processFrame();
+
+        // return the stream so callers can inspect video track capabilities
+        // (onboarding uses this to check torch capability)
+        return stream;
+      },
+
+      async stop() {
+        running = false;
+        if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+        await stopCamera();
+      },
+
+      // swap callbacks without touching filter/detector state.
+      // this is how trial boundaries work — new trial, new callbacks, same running pipeline.
+      setCallbacks(cbs) {
+        if (cbs.onBeatCb !== undefined)           onBeat           = cbs.onBeatCb;
+        if (cbs.onFingerChangeCb !== undefined)   onFingerChange   = cbs.onFingerChangeCb;
+        if (cbs.onPPGSampleCb !== undefined)      onPPGSample      = cbs.onPPGSampleCb;
+        if (cbs.onSqiUpdateCb !== undefined)      onSqiUpdate      = cbs.onSqiUpdateCb;
+        if (cbs.onDicroticRejectCb !== undefined) onDicroticReject = cbs.onDicroticRejectCb;
+      },
+
+      getActualFPS() { return actualFPS; },
+      getSqi() { return currentSqi; },
+      getDicroticRejectCount() { return dicroticRejectCount; },
+      getDiagnostics() {
+        const avgDelta = frameDeltaBuffer.length
+          ? frameDeltaBuffer.reduce((a, b) => a + b, 0) / frameDeltaBuffer.length
+          : 0;
+        return {
+          totalFrames, frameDropCount, avgFrameDelta: avgDelta,
+          clipRate: clipTotal ? (clipCount / clipTotal) * 100 : 0,
+          dicroticRejects: dicroticRejectCount,
+        };
+      },
+    };
+  })();
+
+  // ============================================================
+  // AUDIO ENGINE
+  // ------------------------------------------------------------
+  // two apis:
+  //   scheduleAt(delaySec) — audio-clock scheduled, frame-accurate.
+  //     use this for task tones where timing vs beat detection matters.
+  //   play() — fire now with a perf-clock refractory gate.
+  //     use this for "beep on pulse" monitoring in the validation tool.
+  //
+  // reactive on-detection scheduling (pat 2.0 correct architecture).
+  // 350ms refractory gate prevents physiologically impossible tone pairs.
+  // defensive resume for ios suspended + interrupted states.
+  // ============================================================
+  const AudioEngine = (function () {
+    let audioCtx = null, lowBuf = null;
+
+    function createBeep(freq, dur) {
+      const sr = 44100, len = sr * dur, buf = audioCtx.createBuffer(1, len, sr), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        d[i] = Math.sin(2 * Math.PI * freq * t) * Math.min(1, t * 50) * Math.min(1, (dur - t) * 50) * 0.5;
+      }
+      return buf;
+    }
+
+    // physiological floor — 350ms ≈ 171bpm. closer pairs can't reflect distinct cycles.
+    const MIN_TONE_SPACING = 0.35;       // seconds — used by scheduleAt
+    const MIN_TONE_SPACING_MS = 350;     // ms — used by play()
+    let lastScheduledWhen = 0;
+    let lastPlayedPerfNow = 0;
+    let dropLog = []; // {perfNow, requestedWhen?, sinceLastMs, ctxState}
+
+    return {
+      init() {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        lowBuf = createBeep(440, 0.08);
+      },
+      scheduleAt(delaySec) {
+        if (!audioCtx) return null;
+        // defensive resume — ios suspends aggressively on backgrounding/notifications
+        if (audioCtx.state === "suspended" || audioCtx.state === "interrupted") {
+          audioCtx.resume();
+        }
+        const when = audioCtx.currentTime + Math.max(0, delaySec);
+        const sinceLast = (when - lastScheduledWhen) * 1000;
+        if (when - lastScheduledWhen < MIN_TONE_SPACING) {
+          dropLog.push({ perfNow: performance.now(), requestedWhen: when, sinceLastMs: Math.round(sinceLast), ctxState: audioCtx.state });
+          return { dropped: true, sinceLastMs: sinceLast };
+        }
+        const s = audioCtx.createBufferSource();
+        s.buffer = lowBuf; s.connect(audioCtx.destination);
+        s.start(when);
+        lastScheduledWhen = when;
+        return { scheduledAt: when, perfNow: performance.now(), delaySec, ctxState: audioCtx.state };
+      },
+      // fire immediately with a perf-clock refractory gate. validation tool uses this.
+      play() {
+        if (!audioCtx) return null;
+        if (audioCtx.state === "suspended" || audioCtx.state === "interrupted") audioCtx.resume();
+        const now = performance.now();
+        const sinceLast = now - lastPlayedPerfNow;
+        if (sinceLast < MIN_TONE_SPACING_MS) {
+          dropLog.push({ perfNow: now, sinceLastMs: Math.round(sinceLast), ctxState: audioCtx.state });
+          return { dropped: true, sinceLastMs: sinceLast };
+        }
+        const s = audioCtx.createBufferSource();
+        s.buffer = lowBuf; s.connect(audioCtx.destination);
+        s.start();
+        lastPlayedPerfNow = now;
+        return { perfNow: now, ctxState: audioCtx.state };
+      },
+      resetSchedulerState() { lastScheduledWhen = 0; lastPlayedPerfNow = 0; },
+      getDropLog() { return dropLog.slice(); },
+      clearDropLog() { dropLog = []; },
+      playLow() {
+        if (!audioCtx) return;
+        if (audioCtx.state === "suspended" || audioCtx.state === "interrupted") audioCtx.resume();
+        const s = audioCtx.createBufferSource(); s.buffer = lowBuf; s.connect(audioCtx.destination); s.start();
+      },
+      resume() { if (audioCtx && (audioCtx.state === "suspended" || audioCtx.state === "interrupted")) audioCtx.resume(); },
+      getState() { return audioCtx ? audioCtx.state : "uninitialized"; },
+      getContext() { return audioCtx; },
+    };
+  })();
+
+  // ============================================================
+  // MOTION DETECTOR
+  // ------------------------------------------------------------
+  // accelerometer watchdog. warns when the phone is being moved
+  // beyond a light-tremor threshold during a trial.
+  //
+  // also handles hard-tap detection — used by the validation tool
+  // to drop sync markers into the timeline for cnap alignment.
+  // the task itself doesn't pass a tap callback, so tap detection
+  // is effectively off during a trial.
+  // ============================================================
+  const MotionDetector = (function () {
+    const MOVEMENT_THRESHOLD = 0.2;
+    const HARD_TAP_THRESHOLD = 12;
+
+    let accBuffer = [], lastAcc = { x: 0, y: 0, z: 0 };
+    let listening = false, permitted = false;
+    let onMovementWarning = null, onTapCb = null;
+    let tapDebounce = false;
+
+    function handleMotion(e) {
+      const a = e.accelerationIncludingGravity || e.acceleration;
+      if (!a) return;
+      const diffMag = Math.sqrt(Math.pow(a.x - lastAcc.x, 2) + Math.pow(a.y - lastAcc.y, 2) + Math.pow(a.z - lastAcc.z, 2));
+      accBuffer.push(diffMag);
+
+      // hard tap → fire sync callback (validation uses this for cnap alignment)
+      if (diffMag > HARD_TAP_THRESHOLD && !tapDebounce) {
+        if (onTapCb) onTapCb();
+        tapDebounce = true;
+        setTimeout(() => tapDebounce = false, 800);
+      }
+
+      lastAcc = { x: a.x, y: a.y, z: a.z };
+    }
+
+    return {
+      async requestPermission() {
+        if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
+          try { const perm = await DeviceMotionEvent.requestPermission(); permitted = (perm === "granted"); } catch (e) { permitted = false; }
+        } else { permitted = true; }
+        return permitted;
+      },
+      // second arg (tapCb) is optional — only used by validation tool
+      start(warningCb, tapCb) {
+        if (!permitted) return;
+        onMovementWarning = warningCb || null;
+        onTapCb = tapCb || null;
+        accBuffer = []; lastAcc = { x: 0, y: 0, z: 0 }; tapDebounce = false;
+        window.addEventListener("devicemotion", handleMotion); listening = true;
+      },
+      stop() { if (listening) { window.removeEventListener("devicemotion", handleMotion); listening = false; } },
+      checkMovement() {
+        if (accBuffer.length === 0) return false;
+        const mean = accBuffer.reduce((a, b) => a + b, 0) / accBuffer.length;
+        accBuffer = [];
+        const tooMuch = mean > MOVEMENT_THRESHOLD;
+        if (tooMuch && onMovementWarning) onMovementWarning();
+        return tooMuch;
+      },
+    };
+  })();
+
+  // ============================================================
+  // EXPORT
+  // ============================================================
+  window.ePATCore = {
+    WakeLockCtrl,
+    WabpDetector,
+    BeatDetector,
+    AudioEngine,
+    MotionDetector,
+  };
+
+})();
+
+</script>
+  <style>:root{--accent: #7b219f; --accent-hover: #670d8b; --accent-red: #ff453a; --accent-green: #32d74b; --radius: 14px; --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace; --bg: #f9f9fb; --bg-surface: #ffffff; --bg-elevated: #f0f0f4; --border: #e0e0e5; --fg: #1c1c1e; --fg-muted: #8e8e93;}
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; width: 100%; font-family: var(--font); background: var(--bg); color: var(--fg); overflow: hidden; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+
+    .screen { position: absolute; inset: 0; display: flex; flex-direction: column; padding: calc(env(safe-area-inset-top, 24px) + 24px) 24px calc(env(safe-area-inset-bottom, 24px) + 24px); opacity: 0; pointer-events: none; transition: opacity 0.3s ease-in-out; overflow-y: auto; }
+    .screen.active { opacity: 1; pointer-events: all; }
+
+    h1 { font-size: 1.75rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 8px; color: var(--fg); text-align: center; }
+    h2 { font-size: 1.1rem; font-weight: 400; color: var(--fg-muted); margin-bottom: 32px; letter-spacing: -0.01em; text-align: center; }
+    p { font-size: 1.05rem; line-height: 1.5; color: var(--fg-muted); margin-bottom: 24px; font-weight: 400; text-align: center; }
+    .label { font-size: 0.8rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; display: block; text-align: center; }
+    .institution-label { font-size: 0.75rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; text-align: center; opacity: 0.8; }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; padding: 18px 28px; border-radius: var(--radius); border: none; cursor: pointer; font-family: var(--font); font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(0,0,0,0.15); }
+    .btn-primary:active { background: var(--accent-hover); }
+    .btn-primary:disabled { background: var(--bg-elevated); color: var(--fg-muted); box-shadow: none; }
+    .btn-secondary { background: var(--bg-surface); color: var(--fg); border: 1px solid var(--border); }
+    .btn-secondary:active { background: var(--bg-elevated); }
+    .btn-block { width: 100%; margin-top: auto; flex-shrink: 0; }
+
+    .input-group { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 8px; }
+    .input-group input { width: 100%; padding: 18px; text-align: center; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-family: var(--font); font-size: 1.1rem; outline: none; transition: border-color 0.2s, background 0.2s; }
+    .input-group input:focus { border-color: var(--accent); background: var(--bg-elevated); }
+
+    /* EMA */
+    .ema-progress { height: 3px; background: var(--bg-surface); border-radius: 2px; overflow: hidden; margin-bottom: 24px; flex-shrink: 0; }
+    .ema-progress-fill { height: 100%; background: var(--accent); transition: width 0.3s ease-out; border-radius: 2px; }
+    .ema-item-container { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; overflow-y: auto; padding: 8px 4px; }
+    .ema-question { font-size: 1.15rem; font-weight: 500; color: var(--fg); margin-bottom: 24px; line-height: 1.4; text-align: left; }
+
+    .slider-group { display: flex; flex-direction: column; gap: 12px; padding: 0 4px; }
+    .slider-val-display { font-size: 2.2rem; font-weight: 600; color: var(--accent); text-align: center; font-variant-numeric: tabular-nums; }
+    .range-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: var(--bg-elevated); border-radius: 3px; outline: none; }
+    .range-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 3px solid var(--bg); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .range-slider::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 3px solid var(--bg); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .slider-labels { display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--fg-muted); padding: 0 4px; }
+
+    .choice-group { display: flex; flex-direction: column; gap: 10px; }
+    .choice-btn { display: block; width: 100%; padding: 16px 20px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-family: var(--font); font-size: 1rem; font-weight: 500; text-align: left; cursor: pointer; transition: all 0.15s; -webkit-tap-highlight-color: transparent; }
+    .choice-btn:active { transform: scale(0.99); }
+    .choice-btn.selected { border-color: var(--accent); background: var(--bg-elevated); color: var(--accent); font-weight: 600; }
+    .choice-btn.selected::before { content: '✓'; display: inline-block; margin-right: 10px; color: var(--accent); font-weight: 700; }
+
+    .text-group { width: 100%; }
+    .text-input { width: 100%; padding: 14px 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-family: var(--font); font-size: 1rem; outline: none; transition: border-color 0.2s, background 0.2s; }
+    .text-input:focus { border-color: var(--accent); background: var(--bg-elevated); }
+
+    /* Onboarding */
+    .ob-progress { height: 3px; background: var(--bg-surface); border-radius: 2px; overflow: hidden; margin-bottom: 20px; flex-shrink: 0; }
+    .ob-progress-fill { height: 100%; background: var(--accent); transition: width 0.3s ease-out; }
+    .consent-scroll-hint { font-size: 0.8rem; color: var(--accent); text-align: center; margin-bottom: 8px; transition: opacity 0.3s; }
+    .consent-scroll { flex: 1; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; overflow-y: auto; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.6; text-align: left; -webkit-user-select: text; user-select: text; min-height: 0; }
+    .consent-scroll h3 { font-size: 1rem; font-weight: 600; margin: 16px 0 8px 0; color: var(--fg); text-align: left; }
+    .consent-scroll h3:first-child { margin-top: 0; }
+    .consent-scroll p { font-size: 0.95rem; color: var(--fg-muted); margin-bottom: 12px; text-align: left; }
+    .checkbox-row { display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; margin-bottom: 12px; width: 100%; max-width: 340px; margin-left: auto; margin-right: auto; }
+    .checkbox-row input[type="checkbox"] { width: 24px; height: 24px; flex-shrink: 0; margin-top: 2px; accent-color: var(--accent); cursor: pointer; }
+    .checkbox-row span { font-size: 0.95rem; color: var(--fg-muted); line-height: 1.5; text-align: left; }
+    .ob-input { width: 100%; max-width: 340px; margin: 0 auto 20px; display: block; }
+    .ob-input input { width: 100%; padding: 16px; text-align: center; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-family: var(--font); font-size: 1.05rem; outline: none; transition: border-color 0.2s; }
+    .ob-input input:focus { border-color: var(--accent); background: var(--bg-elevated); }
+    .ob-input input:disabled { opacity: 0.5; }
+
+    .schedule-section { width: 100%; max-width: 340px; margin: 0 auto 28px; }
+    .schedule-label { font-size: 0.8rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; display: block; }
+    .day-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+    .day-btn { padding: 10px 0; border-radius: 8px; background: var(--bg-surface); border: 1px solid var(--border); color: var(--fg-muted); font-size: 0.78rem; font-weight: 600; cursor: pointer; text-align: center; transition: all 0.15s; -webkit-tap-highlight-color: transparent; }
+    .day-btn.selected { border-color: var(--accent); background: var(--bg-elevated); color: var(--accent); }
+    .time-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .time-row-label { width: 76px; font-size: 0.82rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+    .time-row input[type="time"] { flex: 1; padding: 12px 8px; text-align: center; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg); font-family: var(--font-mono); font-size: 0.9rem; outline: none; }
+    .time-sep { color: var(--fg-muted); font-size: 0.85rem; flex-shrink: 0; }
+
+    .check-list { width: 100%; max-width: 340px; margin: 0 auto 16px; }
+    .check-item { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; transition: border-color 0.3s; }
+    .check-item.pass { border-color: var(--accent-green); }
+    .check-item.fail { border-color: var(--accent-red); }
+    .check-item.testing { border-color: var(--accent); }
+    .check-icon { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--bg-elevated); font-size: 0.9rem; }
+    .check-item.pass .check-icon { background: rgba(50,215,75,0.15); }
+    .check-item.fail .check-icon { background: rgba(255,69,58,0.15); }
+    .check-info { flex: 1; }
+    .check-title { font-size: 0.95rem; font-weight: 600; color: var(--fg); }
+    .check-status { font-size: 0.8rem; color: var(--fg-muted); margin-top: 2px; }
+    .check-item.pass .check-status { color: var(--accent-green); }
+    .check-item.fail .check-status { color: var(--accent-red); }
+
+    /* ePAT — Baseline */
+    .progress-ring { position: relative; width: 180px; height: 180px; margin: 0 auto; display: flex; align-items: center; justify-content: center; }
+    .progress-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); z-index: 2; width: 100%; height: 100%; }
+    .progress-ring circle { fill: none; stroke-width: 3; }
+    .progress-ring circle.track { stroke: var(--bg-elevated); }
+    .progress-ring circle.fill { stroke: var(--accent); stroke-dasharray: 534; stroke-dashoffset: 534; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+    .baseline-bpm-box { text-align: center; z-index: 3; }
+    .baseline-bpm-number { font-size: 3.8rem; font-weight: 500; font-family: var(--font-mono); color: var(--fg); line-height: 1; letter-spacing: -0.04em; }
+    .baseline-bpm-label { font-size: 0.8rem; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px; }
+
+    /* ePAT — Trial */
+    #screen-trial { align-items: center; justify-content: center; }
+    .trial-instruction { font-size: 1.1rem; color: var(--fg-muted); text-align: center; max-width: 300px; line-height: 1.4; margin-bottom: 40px; font-weight: 400; }
+
+    .rotary-dial-wrapper { position: relative; width: 280px; height: 280px; margin: 0 auto 40px; display: flex; align-items: center; justify-content: center; border-radius: 50%; user-select: none; }
+    .rotary-dial-ticks { position: absolute; inset: 0; pointer-events: none; border-radius: 50%; z-index: 1; }
+    .dial-tick { position: absolute; width: 2px; height: 6px; background: var(--border); top: 8px; left: 50%; transform-origin: 50% 132px; margin-left: -1px; transition: background 0.2s; }
+
+    .rotary-dial { width: 160px; height: 160px; border-radius: 50%; background: linear-gradient(145deg, #1f1f23, #121214); box-shadow: 8px 8px 16px rgba(0,0,0,0.8), -4px -4px 12px rgba(255,255,255,0.03), inset 0 2px 4px rgba(255,255,255,0.05); border: 1px solid var(--border); position: relative; touch-action: none; cursor: grab; z-index: 2; display: flex; align-items: center; justify-content: center; }
+    .rotary-dial:active { cursor: grabbing; background: linear-gradient(145deg, #1a1a1d, #0f0f11); }
+    .rotary-dial-indicator { position: absolute; top: 12px; left: 50%; width: 4px; height: 24px; background: var(--accent); border-radius: 2px; transform: translateX(-50%); box-shadow: 0 0 8px rgba(232, 113, 106, 0.6); }
+    .dial-labels { display: flex; justify-content: space-between; width: 100%; max-width: 280px; margin: 0 auto; font-size: 0.85rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+    .movement-warning { position: fixed; top: calc(env(safe-area-inset-top, 24px) + 16px); left: 50%; transform: translateX(-50%) translateY(-20px); background: var(--bg-elevated); border: 1px solid var(--border); color: var(--fg); padding: 10px 20px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); font-size: 0.9rem; font-weight: 500; z-index: 50; pointer-events: none; opacity: 0; transition: all 0.3s ease; }
+    .movement-warning.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .sensor-warning-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+    .sensor-warning-overlay.visible { opacity: 1; pointer-events: all; }
+    .sensor-preview-circle { width: 120px; height: 120px; border-radius: 50%; background: #000; border: 3px solid var(--fg); transition: border-color 0.3s ease, box-shadow 0.3s ease; margin-bottom: 24px; }
+    .sensor-warning-text { text-align: center; font-size: 1.1rem; color: var(--fg); font-weight: 500; line-height: 1.4; }
+
+    /* Body map */
+    .body-map-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 340px; margin: 0 auto; }
+    .body-part { padding: 16px; border-radius: 12px; background: var(--bg-surface); border: 1px solid var(--border); color: var(--fg); font-size: 1rem; cursor: pointer; text-align: center; font-weight: 500; transition: all 0.2s; -webkit-tap-highlight-color: transparent; }
+    .body-part.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+    #nowhere-btn { display: block; width: 100%; max-width: 340px; margin: 0 auto 16px; padding: 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--fg-muted); font-family: var(--font); font-size: 1rem; font-weight: 500; cursor: pointer; text-align: center; transition: all 0.2s; }
+    #nowhere-btn.selected { border-color: var(--accent); color: var(--accent); }
+
+    /* Training dial (onboarding) */
+    .training-timeline { width: 100%; max-width: 340px; height: 72px; margin: 0 auto 28px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; flex-shrink: 0; }
+    #training-canvas { width: 100%; height: 100%; display: block; }
+    .training-dial-wrapper { position: relative; width: 240px; height: 240px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; border-radius: 50%; user-select: none; flex-shrink: 0; }
+    .training-dial-ticks { position: absolute; inset: 0; pointer-events: none; border-radius: 50%; }
+    .training-tick { position: absolute; width: 2px; height: 5px; background: var(--border); top: 7px; left: 50%; transform-origin: 50% 113px; margin-left: -1px; }
+    .training-dial { width: 140px; height: 140px; border-radius: 50%; background: linear-gradient(145deg, #1f1f23, #121214); box-shadow: 8px 8px 16px rgba(0,0,0,0.8), -4px -4px 12px rgba(255,255,255,0.03), inset 0 2px 4px rgba(255,255,255,0.05); border: 1px solid var(--border); position: relative; touch-action: none; cursor: grab; z-index: 2; }
+    .training-dial:active { cursor: grabbing; }
+    .training-dial-indicator { position: absolute; top: 10px; left: 50%; width: 4px; height: 22px; background: var(--accent); border-radius: 2px; transform: translateX(-50%); box-shadow: 0 0 8px rgba(232,113,106,0.6); }
+    .training-dial-labels { display: flex; justify-content: space-between; width: 240px; margin: 0 auto 20px; font-size: 0.8rem; font-weight: 600; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.07em; flex-shrink: 0; }
+    .training-status { text-align: center; font-size: 0.95rem; color: var(--fg-muted); min-height: 1.4em; transition: color 0.3s; flex-shrink: 0; margin-bottom: 8px; }
+    .training-status.aligned { color: var(--accent-green); }
+
+    /* Affect grid — layout is handled via inline styles in module-ema.js */
+    .affect-grid-container { width: 100%; max-width: 360px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <video id="video-feed" playsinline muted style="position:fixed;top:-999px;opacity:0;"></video>
+  <canvas id="sampling-canvas" style="position:fixed;top:-999px;opacity:0;"></canvas>
+
+  <div class="sensor-warning-overlay" id="sensor-warning-overlay">
+    <canvas id="sensor-preview-circle" class="sensor-preview-circle"></canvas>
+    <div class="sensor-warning-text" id="sensor-warning-text">Place finger on camera</div>
+  </div>
+
+  <!-- PID / Start screen -->
+  <div class="screen active" id="screen-pid">
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:24px;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      <h1 id="study-title">Loading…</h1>
+      <h2 id="task-subtitle"></h2>
+      <div id="day-label" style="display:none;font-family:var(--font-mono);font-size:0.8rem;color:var(--accent);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;"></div>
+      <div class="input-group" id="participant-input-group" style="margin-top:24px;">
+        <label class="label">Participant ID</label>
+        <input type="text" id="pid-input" autocomplete="off" placeholder="Enter ID">
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block" id="start-btn" disabled>Begin Session</button>
+  </div>
+
+  <!-- Pre-trial instructions (reused by ePAT module) -->
+  <div class="screen" id="screen-onboarding">
+    <div class="ema-item-container" id="onboarding-container"></div>
+    <div style="margin-top:32px;"><button class="btn btn-primary btn-block" id="onboarding-next-btn">Continue</button></div>
+  </div>
+
+  <!-- Onboarding: Consent -->
+  <div class="screen" id="screen-ob-consent">
+    <div class="ob-progress"><div class="ob-progress-fill" style="width:20%"></div></div>
+    <h1>Informed Consent</h1>
+    <p class="consent-scroll-hint" id="ob-consent-hint">↓ Scroll to read</p>
+    <div class="consent-scroll" id="ob-consent-scroll"></div>
+    <label class="checkbox-row" id="ob-consent-check-row" style="opacity:0.4;pointer-events:none;">
+      <input type="checkbox" id="ob-consent-check">
+      <span>I have read and understood the above. I voluntarily agree to participate.</span>
+    </label>
+    <div class="ob-input"><input type="text" id="ob-initials" placeholder="Your initials" maxlength="5" autocomplete="off" style="text-transform:uppercase;" disabled></div>
+    <button class="btn btn-primary btn-block" id="ob-consent-next" disabled>I Consent — Continue</button>
+  </div>
+
+  <!-- Onboarding: Schedule -->
+  <div class="screen" id="screen-ob-schedule">
+    <div class="ob-progress"><div class="ob-progress-fill" style="width:40%"></div></div>
+    <h1>Scheduling</h1>
+    <p>Choose your available days and preferred check-in windows.</p>
+    <div class="schedule-section">
+      <span class="schedule-label">Available days</span>
+      <div class="day-grid" id="ob-day-grid">
+        <button class="day-btn selected" data-day="Mon">Mon</button>
+        <button class="day-btn selected" data-day="Tue">Tue</button>
+        <button class="day-btn selected" data-day="Wed">Wed</button>
+        <button class="day-btn selected" data-day="Thu">Thu</button>
+        <button class="day-btn selected" data-day="Fri">Fri</button>
+        <button class="day-btn selected" data-day="Sat">Sat</button>
+        <button class="day-btn selected" data-day="Sun">Sun</button>
+      </div>
+    </div>
+    <div class="schedule-section">
+      <span class="schedule-label">Check-in time windows</span>
+      <div class="time-row"><span class="time-row-label">Morning</span><input type="time" id="ob-am-start" value="08:00"><span class="time-sep">–</span><input type="time" id="ob-am-end" value="10:00"></div>
+      <div class="time-row"><span class="time-row-label">Afternoon</span><input type="time" id="ob-pm-start" value="13:00"><span class="time-sep">–</span><input type="time" id="ob-pm-end" value="15:00"></div>
+      <div class="time-row"><span class="time-row-label">Evening</span><input type="time" id="ob-ev-start" value="19:00"><span class="time-sep">–</span><input type="time" id="ob-ev-end" value="21:00"></div>
+    </div>
+    <div style="flex:1;min-height:16px;"></div>
+    <button class="btn btn-primary btn-block" id="ob-schedule-next">Continue</button>
+  </div>
+
+  <!-- Onboarding: Device Check -->
+  <div class="screen" id="screen-ob-device">
+    <div class="ob-progress"><div class="ob-progress-fill" style="width:60%"></div></div>
+    <h1>Device Check</h1>
+    <p style="margin-bottom:24px;">We'll confirm your device supports the task. For multi-lens phones, cover the lens <em>closest</em> to the flashlight.</p>
+    <div class="check-list">
+      <div class="check-item" id="ob-check-camera">
+        <div class="check-icon">📷</div>
+        <div class="check-info"><div class="check-title">Camera</div><div class="check-status" id="ob-check-camera-status">Waiting…</div></div>
+      </div>
+      <div class="check-item" id="ob-check-torch">
+        <div class="check-icon">🔦</div>
+        <div class="check-info"><div class="check-title">Flashlight</div><div class="check-status" id="ob-check-torch-status">Waiting…</div></div>
+      </div>
+      <div class="check-item" id="ob-check-audio">
+        <div class="check-icon">🔊</div>
+        <div class="check-info"><div class="check-title">Audio</div><div class="check-status" id="ob-check-audio-status">Waiting…</div></div>
+      </div>
+      <div class="check-item" id="ob-check-signal">
+        <div class="check-icon">♥</div>
+        <div class="check-info"><div class="check-title">PPG Signal</div><div class="check-status" id="ob-check-signal-status">Waiting…</div></div>
+      </div>
+      <div id="ob-signal-preview-wrap" style="display:none;justify-content:center;margin:4px 0 8px;">
+        <canvas id="ob-signal-preview" style="width:80px;height:80px;border-radius:50%;border:2px solid var(--border);background:#000;display:block;"></canvas>
+      </div>
+    </div>
+    <p id="ob-device-status" style="text-align:center;font-size:0.9rem;min-height:1.4em;color:var(--fg-muted);"></p>
+    <div style="flex:1;min-height:16px;"></div>
+    <button class="btn btn-primary btn-block" id="ob-device-start">Run Checks</button>
+    <button class="btn btn-primary btn-block" id="ob-device-next" style="display:none;margin-top:12px;">Continue</button>
+    <button class="btn btn-secondary btn-block" id="ob-device-retry" style="display:none;margin-top:8px;">Retry</button>
+  </div>
+
+  <!-- Onboarding: Task Training -->
+  <div class="screen" id="screen-ob-training">
+    <div class="ob-progress"><div class="ob-progress-fill" style="width:80%"></div></div>
+    <h1>Learn the Task</h1>
+    <p style="margin-bottom:16px;">A simulated heartbeat plays below. Rotate the dial to move the tone earlier or later until it lands on each beat.</p>
+    <div class="training-timeline"><canvas id="training-canvas"></canvas></div>
+    <div class="training-dial-wrapper">
+      <div class="training-dial-ticks" id="training-dial-ticks"></div>
+      <div class="training-dial" id="training-dial"><div class="training-dial-indicator"></div></div>
+    </div>
+    <div class="training-dial-labels"><span>Earlier</span><span>Later</span></div>
+    <p class="training-status" id="training-status">Rotate the dial to align the tone with the beats</p>
+    <div style="flex:1;min-height:8px;"></div>
+    <button class="btn btn-primary btn-block" id="ob-training-next" disabled>Continue</button>
+  </div>
+
+  <!-- Onboarding: Complete -->
+  <div class="screen" id="screen-ob-complete">
+    <div class="ob-progress"><div class="ob-progress-fill" style="width:100%"></div></div>
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+      <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:24px;">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+      <h1>You're All Set</h1>
+      <p>Setup is complete. Your first session begins now.</p>
+    </div>
+    <button class="btn btn-primary btn-block" id="ob-complete-pat">Begin First Session →</button>
+  </div>
+
+  <!-- EMA -->
+  <div class="screen" id="screen-ema">
+    <h2 id="ema-greeting" style="margin-bottom:12px;font-weight:600;color:var(--fg);">Check-In</h2>
+    <div class="ema-progress"><div class="ema-progress-fill" id="ema-progress-fill" style="width:0%"></div></div>
+    <div class="ema-item-container" id="ema-single-container"></div>
+    <div style="margin-top:40px;flex-shrink:0;"><button class="btn btn-primary btn-block" id="ema-next-btn" disabled>Next</button></div>
+  </div>
+
+  <!-- Baseline -->
+  <div class="screen" id="screen-baseline">
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;">
+      <div style="margin-bottom:40px;"><h1>Calibration</h1><p class="label">Keep your finger completely still</p></div>
+      <div class="progress-ring">
+        <svg viewBox="0 0 180 180"><circle class="track" cx="90" cy="90" r="85"/><circle class="fill" id="baseline-progress-circle" cx="90" cy="90" r="85"/></svg>
+        <div class="baseline-bpm-box"><div class="baseline-bpm-number" id="baseline-bpm">--</div><div class="baseline-bpm-label">BPM</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trial -->
+  <div class="screen" id="screen-trial">
+    <div class="movement-warning" id="trial-movement-warning">Keep still</div>
+
+    <div class="trial-header" style="text-align:center;position:absolute;top:calc(env(safe-area-inset-top,24px) + 24px);width:100%;">
+      <p class="label" id="trial-label" style="color:var(--fg-muted);">Trial 1</p>
+    </div>
+
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;">
+      <p class="trial-instruction">Rotate the dial until the tone precisely aligns with your heartbeat.</p>
+
+      <div class="rotary-dial-wrapper">
+        <div class="rotary-dial-ticks" id="rotary-dial-ticks"></div>
+        <div class="rotary-dial" id="rotary-dial">
+          <div class="rotary-dial-indicator"></div>
+        </div>
+      </div>
+
+      <div class="dial-labels">
+        <span>Earlier</span>
+        <span>Later</span>
+      </div>
+    </div>
+
+    <button class="btn btn-primary btn-block" id="confirm-trial-btn" disabled style="margin-top:40px;">
+      Confirm Timing
+    </button>
+  </div>
+
+  <!-- Body map -->
+  <div class="screen" id="screen-bodymap">
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;">
+      <h1>Sensation</h1>
+      <p>Where did you primarily feel your heartbeat?</p>
+      <button id="nowhere-btn" style="margin-bottom:16px;">Did not feel it</button>
+      <div class="body-map-grid">
+        <div class="body-part" data-value="1">Chest</div>
+        <div class="body-part" data-value="2">Fingers</div>
+        <div class="body-part" data-value="3">Neck</div>
+        <div class="body-part" data-value="4">Ears</div>
+        <div class="body-part" data-value="5">Abdomen</div>
+        <div class="body-part" data-value="6">Legs</div>
+        <div class="body-part" data-value="7">Head</div>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block" id="confirm-bodymap-btn" disabled style="margin-top:32px;">Confirm Location</button>
+  </div>
+
+  <!-- End -->
+  <div class="screen" id="screen-end">
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:24px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <h1>Session Complete</h1>
+      <p>Thank you for your participation.</p>
+      <p id="end-beat-count" style="display:none;font-family:var(--font-mono);font-size:1rem;color:var(--accent);margin-top:0;"></p>
+    </div>
+    <button class="btn btn-secondary btn-block" id="download-btn">Save Local Copy</button>
+  </div>
+
+  <script>
+"use strict";
+
+// ==========================================================
+// EMA Studio — study-base.js (runtime)
+// v1.4.0
+// ==========================================================
+//
+// Changes from v1.3:
+//
+// PHASE SEQUENCE (forward-looking):
+//   - Router now prefers config.ema.scheduling.windows[i].phase_sequence
+//     when non-empty. Falls back to the legacy {pre, task, post} triple
+//     if phase_sequence is missing (old exports still work).
+//   - phase_sequence is an ordered array of:
+//       { kind: "ema",  block: "pre" | "post" }
+//       { kind: "task", id: "epat" | "stroop" | ... }
+//   - Multiple tasks per session are now a pure schema concern — the router
+//     just walks the array.
+//
+// RESUME (study.resume_enabled):
+//   - After every phase transition (advancePhase) and at finalizeSession,
+//     we write sessionData to localStorage under a resume key built from
+//     (pid, day, sessionId-in-url). On load, if there's a saved state and
+//     status is "in_progress", we show a resume dialog: continue or restart.
+//   - Resume skips completed phases and picks up at sessionData.currentPhase.
+//     In-progress phase state (mid-EMA page, mid-trial) is NOT persisted —
+//     participants restart the current phase. This is the defensible boundary:
+//     resuming mid-trial for ePAT would require serialising PPG state which
+//     is too fragile. The phase restarts; the already-completed phases
+//     (and their data) survive.
+//
+// COMPLETION LOCK (study.completion_lock):
+//   - On finalizeSession, we stamp a completion record keyed on
+//     (pid, day, urlSession). On load, if a completion already exists,
+//     the start button is disabled and the screen explains why. Can be
+//     bypassed by adding ?force=1 to the URL (for researcher testing).
+//
+// THEME HOT-LOAD (static bundle fix):
+//   - Runtime reads config.study.theme + accent_color and injects CSS
+//     variables into :root. This means the static-hosting bundle can
+//     change theme by editing config.json without re-exporting. For the
+//     single-file export, the CSS is already baked in, so this is a no-op.
+//
+// KNOWN-GOOD FROM v1.3 (preserved):
+//   - Per-question response latency (emaResponses.responses[qid].respondedAt)
+//   - CSV as default output
+//   - Explicit module dispatch switch
+//   - Session output JSON/CSV contract
+// ==========================================================
+
+async function loadConfig() { return Promise.resolve(window.__CONFIG__); }
+window.__PREVIEW_MODE__ = false;
+
+const isPreview = window.__PREVIEW_MODE__ === true;
+
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+function evalCond(cond, responses) {
+  if (!cond) return true;
+  const rec = responses[cond.question_id];
+  const val = rec && typeof rec === 'object' ? rec.value : rec;
+  if (val === undefined || val === null || val === '') return false;
+  const cv = cond.value;
+  switch(cond.operator) {
+    case 'eq':  return val == cv;
+    case 'neq': return val != cv;
+    case 'gt':  return Number(val) >  Number(cv);
+    case 'gte': return Number(val) >= Number(cv);
+    case 'lt':  return Number(val) <  Number(cv);
+    case 'lte': return Number(val) <= Number(cv);
+    case 'includes': {
+      const arr = Array.isArray(cv) ? cv : [cv];
+      const ans = Array.isArray(val) ? val : [val];
+      return arr.some(v => ans.includes(v));
+    }
+    default: return true;
+  }
+}
+
+// Dial tick generation for ePAT visual aesthetics
+(function generateTicks() {
+  const containers = ['rotary-dial-ticks', 'training-dial-ticks'];
+  containers.forEach(cid => {
+    const c = document.getElementById(cid);
+    if (!c) return;
+    const isTrain = cid.includes('training');
+    const total = isTrain ? 60 : 72;
+    for (let i = 0; i < total; i++) {
+      const t = document.createElement('div');
+      t.className = isTrain ? 'training-tick' : 'dial-tick';
+      t.style.transform = `rotate(${i * (360/total)}deg)`;
+      if (i % 2 === 0) t.style.height = isTrain ? '8px' : '10px';
+      if (i % (total/4) === 0) { t.style.height = isTrain ? '12px' : '14px'; t.style.background = 'var(--fg-muted)'; }
+      c.appendChild(t);
+    }
+  });
+})();
+
+// ==========================================================
+// RESUME MANAGER
+// ----------------------------------------------------------
+// Keyed on a string built from pid + day + the session param from the URL.
+// Not the runtime-generated sessionData.sessionId, because that changes on
+// every reload — we want a stable key so reloads after a crash actually
+// find the saved state.
+// ==========================================================
+const ResumeManager = {
+  _prefix: 'ema_studio_resume_v1__',
+
+  _key(pid, day, urlSession) {
+    return this._prefix + [pid || 'anon', day || '0', urlSession || 'default'].join('|');
+  },
+
+  save(pid, day, urlSession, sessionData) {
+    if (isPreview) return;
+    try {
+      localStorage.setItem(this._key(pid, day, urlSession), JSON.stringify(sessionData));
+    } catch (e) {
+      // Quota exceeded — most likely ePAT signal data from prior sessions.
+      // Fail silently; losing resume capability is better than crashing.
+      console.warn('ResumeManager.save failed:', e);
+    }
+  },
+
+  load(pid, day, urlSession) {
+    if (isPreview) return null;
+    try {
+      const raw = localStorage.getItem(this._key(pid, day, urlSession));
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  clear(pid, day, urlSession) {
+    try { localStorage.removeItem(this._key(pid, day, urlSession)); } catch (e) {}
+  }
+};
+
+// ==========================================================
+// COMPLETION LOCK
+// ----------------------------------------------------------
+// One completed session per (pid, day, urlSession). Client-side only —
+// a participant switching phones or clearing browser data bypasses this,
+// which is the best you can do without a server. For most EMA use cases
+// that's fine: the scenario you actually care about is the participant
+// accidentally opening the same link twice in a row.
+// ==========================================================
+const CompletionLock = {
+  _prefix: 'ema_studio_done_v1__',
+
+  _key(pid, day, urlSession) {
+    return this._prefix + [pid || 'anon', day || '0', urlSession || 'default'].join('|');
+  },
+
+  isLocked(pid, day, urlSession) {
+    if (isPreview) return false;
+    try {
+      return !!localStorage.getItem(this._key(pid, day, urlSession));
+    } catch (e) { return false; }
+  },
+
+  stamp(pid, day, urlSession) {
+    if (isPreview) return;
+    try {
+      localStorage.setItem(this._key(pid, day, urlSession), new Date().toISOString());
+    } catch (e) {}
+  }
+};
+
+// ==========================================================
+// THEME HOT-LOAD (for static bundle re-themeing via config.json edits)
+// ==========================================================
+function applyThemeFromConfig(cfg) {
+  // Only needed for the static bundle case where CSS is a separate file
+  // with baked theme vars. The single-file export already has the right
+  // vars inlined, so this is a no-op overwrite with the same values.
+  // Runs before any screen renders so there's no flash.
+  const study = cfg.study || {};
+  const accent = study.accent_color || '#e8716a';
+  const theme  = study.theme || 'oled';
+
+  const root = document.documentElement.style;
+  root.setProperty('--accent', accent);
+
+  // These color sets duplicate export.js getThemeCSS — kept in sync by hand.
+  // If you change one, change the other.
+  if (theme === 'light') {
+    root.setProperty('--bg',         '#f9f9fb');
+    root.setProperty('--bg-surface', '#ffffff');
+    root.setProperty('--bg-elevated','#f0f0f4');
+    root.setProperty('--border',     '#e0e0e5');
+    root.setProperty('--fg',         '#1c1c1e');
+    root.setProperty('--fg-muted',   '#8e8e93');
+  } else if (theme === 'dark') {
+    root.setProperty('--bg',         '#121212');
+    root.setProperty('--bg-surface', '#1e1e1e');
+    root.setProperty('--bg-elevated','#2d2d2d');
+    root.setProperty('--border',     '#3d3d3d');
+    root.setProperty('--fg',         '#e0e0e0');
+    root.setProperty('--fg-muted',   '#9e9e9e');
+  } else {
+    root.setProperty('--bg',         '#000000');
+    root.setProperty('--bg-surface', '#111111');
+    root.setProperty('--bg-elevated','#1c1c1e');
+    root.setProperty('--border',     '#2c2c2e');
+    root.setProperty('--fg',         '#ffffff');
+    root.setProperty('--fg-muted',   '#8e8e93');
+  }
+}
+
+// ==========================================================
+// UPLOAD (unchanged from v1.3 apart from the filename date fix)
+// ==========================================================
+const Upload = {
+
+  _slugify(str) {
+    return (str || 'study').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  },
+
+  _downloadBlob(blob, filename) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  },
+
+  _toNumeric(val) {
+    if (val === null || val === undefined || val === '') return '';
+    if (Array.isArray(val)) return '';
+    const n = Number(val);
+    return Number.isFinite(n) ? n : '';
+  },
+
+  _serializeValue(val) {
+    if (val === null || val === undefined) return '';
+    if (Array.isArray(val)) return val.join(';');
+    // Affect-grid values are {valence, arousal} objects — serialize as "v;a"
+    if (val && typeof val === 'object' && 'valence' in val && 'arousal' in val) {
+      return `${val.valence};${val.arousal}`;
+    }
+    return String(val);
+  },
+
+  _csvEscape(val) {
+    const s = String(val ?? '');
+    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  },
+
+  _buildQuestionIndex(cfg) {
+    const idx = {};
+    (cfg.ema?.questions || []).forEach(q => {
+      if (q.type !== 'page_break') idx[q.id] = q;
+    });
+    return idx;
+  },
+
+  _buildEmaCsv(sessionData, cfg) {
+    const qIdx = this._buildQuestionIndex(cfg);
+    const windows = cfg.ema?.scheduling?.windows || [];
+    const header = [
+      'schema_version', 'study_name', 'participant_id', 'session_id',
+      'session_type', 'day', 'window_id', 'window_label', 'block',
+      'session_started_at', 'session_submitted_at',
+      'phase_started_at', 'phase_submitted_at',
+      'question_id', 'question_text', 'question_type',
+      'response_value', 'response_numeric', 'response_latency_ms'
+    ];
+
+    const rows = [];
+    const emaEntries = (sessionData.data || []).filter(e => e && e.type === 'ema_response');
+
+    emaEntries.forEach(entry => {
+      const wId  = entry.windowId || '';
+      const wCfg = windows.find(w => w.id === wId);
+      const wLabel = wCfg ? wCfg.label : '';
+      const phaseStart = entry.startedAt || '';
+      const phaseSubmit = entry.submittedAt || '';
+      const phaseStartMs = phaseStart ? Date.parse(phaseStart) : null;
+
+      Object.entries(entry.responses || {}).forEach(([qid, rec]) => {
+        const q = qIdx[qid] || {};
+        const rawVal = (rec && typeof rec === 'object' && 'value' in rec) ? rec.value : rec;
+        const respAt = (rec && typeof rec === 'object') ? rec.respondedAt : null;
+        const latency = (phaseStartMs && respAt) ? (Date.parse(respAt) - phaseStartMs) : '';
+
+        rows.push([
+          sessionData.schemaVersion || '',
+          sessionData.studyName || '',
+          sessionData.participantId,
+          sessionData.sessionId,
+          sessionData.type,
+          sessionData.day ?? '',
+          wId,
+          wLabel,
+          entry.block || '',
+          sessionData.startedAt || '',
+          sessionData.completedAt || '',
+          phaseStart,
+          phaseSubmit,
+          qid,
+          q.text || '',
+          q.type || '',
+          this._serializeValue(rawVal),
+          this._toNumeric(rawVal),
+          latency
+        ]);
+      });
+    });
+
+    return { header, rows };
+  },
+
+  _csvString({ header, rows }) {
+    const esc = this._csvEscape.bind(this);
+    const lines = [header.map(esc).join(',')];
+    rows.forEach(r => lines.push(r.map(esc).join(',')));
+    return lines.join('\n');
+  },
+
+  _hasTaskSignalData(sessionData) {
+    return (sessionData.data || []).some(e =>
+      e && (e.type === 'baseline' || e.type === 'trial')
+    );
+  },
+
+  send(sessionData, cb) {
+    if (isPreview) { if (cb) cb(); return; }
+
+    const cfg = (typeof config !== 'undefined') ? config : {};
+    const format = cfg.study?.output_format || 'csv';
+    const slug = this._slugify(cfg.study?.name);
+    const pid = sessionData.participantId || 'unknown';
+    const sid = sessionData.sessionId;
+    const date = new Date().toISOString().slice(0, 10);
+    const base = `${slug}_${pid}_${date}_${sid}`;
+
+    const shouldEmitJson = format === 'json' || this._hasTaskSignalData(sessionData);
+    const shouldEmitCsv  = format === 'csv';
+
+    if (shouldEmitCsv) {
+      const csv = this._csvString(this._buildEmaCsv(sessionData, cfg));
+      this._downloadBlob(
+        new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
+        `${base}_ema.csv`
+      );
+    }
+
+    if (shouldEmitJson) {
+      const payload = (shouldEmitCsv && this._hasTaskSignalData(sessionData))
+        ? {
+            schemaVersion: sessionData.schemaVersion,
+            studyName:     sessionData.studyName,
+            sessionId:     sessionData.sessionId,
+            participantId: sessionData.participantId,
+            day:           sessionData.day,
+            type:          sessionData.type,
+            phases:        sessionData.phases,
+            counterbalance: sessionData.counterbalance,
+            startedAt:     sessionData.startedAt,
+            completedAt:   sessionData.completedAt,
+            device:        sessionData.device,
+            status:        sessionData.status,
+            data:          (sessionData.data || []).filter(e => e && e.type !== 'ema_response')
+          }
+        : sessionData;
+
+      const suffix = (shouldEmitCsv && this._hasTaskSignalData(sessionData)) ? '_task' : '';
+      this._downloadBlob(
+        new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
+        `${base}${suffix}.json`
+      );
+    }
+
+    if (cb) cb();
+  }
+};
+
+function collectDeviceMetadata() {
+  const ua = navigator.userAgent;
+  let deviceModel = 'Unknown', osName = 'Unknown', osVersion = '', browserName = 'Unknown', browserVersion = '';
+  if (/iPhone/.test(ua)) { deviceModel = 'iPhone'; osName = 'iOS'; const m = ua.match(/OS (\d+[_\.]\d+[_\.]?\d*)/); if (m) osVersion = m[1].replace(/_/g, '.'); }
+  else if (/Android/.test(ua)) { osName = 'Android'; const m = ua.match(/Android ([\d.]+)/); if (m) osVersion = m[1]; const dm = ua.match(/;\s*([^;)]+)\s*Build\//); if (dm) deviceModel = dm[1].trim(); else deviceModel = 'Android Device'; }
+  else if (/Mac OS X/.test(ua)) { osName = 'macOS'; const m = ua.match(/Mac OS X ([\d_]+)/); if (m) osVersion = m[1].replace(/_/g, '.'); deviceModel = 'Mac'; }
+  else if (/Windows/.test(ua)) { osName = 'Windows'; const m = ua.match(/Windows NT ([\d.]+)/); if (m) osVersion = m[1]; deviceModel = 'PC'; }
+
+  return {
+    userAgent: ua, deviceModel, osName, osVersion, browserName, browserVersion,
+    screenWidth: screen.width, screenHeight: screen.height,
+    devicePixelRatio: window.devicePixelRatio || 1, platform: navigator.platform || ''
+  };
+}
+
+// ==========================================================
+// MAIN RUNTIME EXECUTOR
+// ==========================================================
+(async function() {
+  const config = await loadConfig();
+
+  // Apply theme first so there's no flash of wrong-themed screen
+  applyThemeFromConfig(config);
+
+  const params = new URLSearchParams(window.location.search);
+
+  document.getElementById('study-title').textContent = config.study.name || 'Study';
+  document.getElementById('task-subtitle').textContent = config.study.institution || '';
+
+  
+    const tParam = params.get('t');
+    const expiryMs = (config.ema.scheduling.timing?.expiry_minutes || 60) * 60 * 1000;
+    if (tParam && (Date.now() - parseInt(tParam)) > expiryMs) {
+      document.getElementById('task-subtitle').textContent = 'Link Expired';
+      document.getElementById('start-btn').disabled = true;
+      document.getElementById('start-btn').textContent = 'Session no longer active';
+      return;
+    }
+  const sessionId = params.get('session') || "w1";
+
+  const pidInput = document.getElementById('pid-input');
+  const startBtn = document.getElementById('start-btn');
+
+  // Stable URL-derived identifiers for resume + completion lock.
+  // These are set before any session starts so we can check locks upfront.
+  const urlPid     = (params.get('id') || '').trim();
+  const urlDay     = params.get('day') || '';
+  const urlSession = sessionId;
+  const forceOverride = params.get('force') === '1';
+
+if (urlPid) {
+    pidInput.value = urlPid;
+    document.getElementById('participant-input-group').style.display = 'none';
+  }
+  if (urlDay) {
+    const dl = document.getElementById('day-label');
+    dl.textContent = `Day ${urlDay}`;
+    dl.style.display = 'block';
+  }
+  pidInput.addEventListener('input', () => { startBtn.disabled = !pidInput.value.trim(); });
+ 
+  // Enable the start button whenever there's a usable PID, covering all cases:
+  //   1. URL supplied ?id=  (real participant link)
+  //   2. Preview mode       (no URL params, no one typing)
+  //   3. ?session=onboarding (PID collected later during consent)
+  if (pidInput.value.trim() || isPreview || sessionId === 'onboarding') {
+    if (isPreview) pidInput.value = pidInput.value.trim() || 'preview';
+    document.getElementById('participant-input-group').style.display = 'none';
+    startBtn.disabled = false;
+  }
+ 
+  // Enable the start button whenever there's a usable PID, covering all cases:
+  //   1. URL supplied ?id=  (real participant link)
+  //   2. Preview mode       (no URL params, no one typing)
+  //   3. ?session=onboarding (PID collected later during consent)
+  if (pidInput.value.trim() || isPreview || sessionId === 'onboarding') {
+    if (isPreview) pidInput.value = pidInput.value.trim() || 'preview';
+    document.getElementById('participant-input-group').style.display = 'none';
+    startBtn.disabled = false;
+  }
+
+
+  // ---------------------------------------------------------------
+  // COMPLETION LOCK CHECK (before anything else)
+  // ---------------------------------------------------------------
+  if (config.study?.completion_lock && !forceOverride && urlPid) {
+    if (CompletionLock.isLocked(urlPid, urlDay, urlSession)) {
+      document.getElementById('task-subtitle').textContent = 'Already Completed';
+      const dayLabel = document.getElementById('day-label');
+      if (dayLabel) { dayLabel.textContent = 'Thank you'; dayLabel.style.display = 'block'; }
+      startBtn.disabled = true;
+      startBtn.textContent = 'Session already submitted';
+      document.getElementById('participant-input-group').style.display = 'none';
+      return;
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Build a fresh sessionData template. The router below populates
+  // .type, .phases, and .counterbalance.
+  // ---------------------------------------------------------------
+  let sessionData = {
+    schemaVersion: config.schema_version || '',
+    studyName:     config.study?.name || '',
+    sessionId:     "ses_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+    participantId: urlPid,
+    day:           parseInt(urlDay) || null,
+    type:          "",
+    phases:        [],
+    currentPhase:  0,
+    counterbalance: null,
+    startedAt:     null,
+    completedAt:   null,
+    device:        null,
+    data:          [],
+    status:        "in_progress"
+  };
+
+  const cbParam = params.get('cb');
+  const dynamicWindows = config.ema?.scheduling?.windows || [];
+  const enabledModules = config.modules || {};
+
+  // ---------------------------------------------------------------
+  // ROUTER — v1.4: consume window.phase_sequence (preferred) OR the
+  // legacy {pre, task, post} triple (fallback).
+  // ---------------------------------------------------------------
+  function expandWindowToTokens(w) {
+    const seq = (Array.isArray(w.phase_sequence) && w.phase_sequence.length > 0)
+      ? w.phase_sequence
+      : legacyTripleToSequence(w.phases);
+
+    const tokens = [];
+    seq.forEach(step => {
+      if (step.kind === 'ema') {
+        const block = step.block === 'post' ? 'post' : 'pre';
+        tokens.push(`${block}_${w.id}`);
+      } else if (step.kind === 'task' && step.id && enabledModules[step.id]) {
+        tokens.push(step.id);
+      }
+      // Unknown kinds and disabled modules silently drop — degrade gracefully.
+    });
+    return tokens;
+  }
+
+  function legacyTripleToSequence(phases) {
+    const ph = phases || { pre: true, task: null, post: false };
+    const seq = [];
+    if (ph.pre)             seq.push({ kind: "ema",  block: "pre"  });
+    if (ph.task)            seq.push({ kind: "task", id:    ph.task });
+    if (ph.post && ph.task) seq.push({ kind: "ema",  block: "post" });
+    return seq;
+  }
+
+  if (sessionId === 'onboarding') {
+    sessionData.type = "onboarding";
+    document.getElementById('task-subtitle').textContent = "Study Setup";
+  } else {
+    const w = dynamicWindows.find(win => win.id === sessionId);
+
+    if (!w) {
+      const fallback = dynamicWindows[0];
+      if (fallback) {
+        sessionData.type = "ema_only";
+        sessionData.phases = [`pre_${fallback.id}`];
+        document.getElementById('task-subtitle').textContent = fallback.label || 'Check-In';
+      } else {
+        sessionData.type = "error";
+        document.getElementById('task-subtitle').textContent = "Invalid Session";
+        startBtn.disabled = true;
+        startBtn.textContent = 'Session not found';
+        return;
+      }
+    } else {
+      let phaseTokens = expandWindowToTokens(w);
+
+      // Counterbalancing: swap first pair if the window has both an EMA pre-block
+      // and a task, and cb=task_first was requested. Kept narrow-scope — if you
+      // need arbitrary permutations you'd edit phase_sequence directly in config.
+      if (cbParam && phaseTokens.length >= 2) {
+        const firstIsPre  = phaseTokens[0].startsWith('pre_');
+        const secondIsTask = !phaseTokens[1].startsWith('pre_') && !phaseTokens[1].startsWith('post_');
+        if (firstIsPre && secondIsTask) {
+          const wantTaskFirst = (cbParam === 'task_first') ||
+                                (cbParam === 'pat_first' && phaseTokens[1] === 'epat');
+          if (wantTaskFirst) {
+            [phaseTokens[0], phaseTokens[1]] = [phaseTokens[1], phaseTokens[0]];
+            sessionData.counterbalance = 'task_first';
+          } else {
+            sessionData.counterbalance = 'pre_first';
+          }
+        }
+      }
+
+      // Categorize session type for downstream analyses.
+      const hasTask = phaseTokens.some(t => !t.startsWith('pre_') && !t.startsWith('post_'));
+      const hasPost = phaseTokens.some(t => t.startsWith('post_'));
+      sessionData.type = hasTask ? (hasPost ? "pre_task_post" : "pre_task") : "ema_only";
+      sessionData.phases = phaseTokens;
+
+      document.getElementById('task-subtitle').textContent = w.label || 'Check-In';
+    }
+  }
+
+  // Dynamic greeting based on window id
+  const greetings = config.study?.greetings || {};
+  const matchedWindow = dynamicWindows.find(w => w.id === sessionId);
+  const greetingText = greetings[sessionId]
+                    || (matchedWindow ? matchedWindow.label : 'Check-In');
+  const greetingEl = document.getElementById('ema-greeting');
+  if (greetingEl) greetingEl.textContent = greetingText;
+
+  // ---------------------------------------------------------------
+  // RESUME CHECK (offer to continue if a prior in-progress session exists)
+  // ---------------------------------------------------------------
+  let resumeOffer = null;
+  if (config.study?.resume_enabled && !isPreview && urlPid) {
+    const saved = ResumeManager.load(urlPid, urlDay, urlSession);
+    if (saved && saved.status === 'in_progress' && Array.isArray(saved.phases) && saved.phases.length) {
+      // Validate that the saved phase list is still consistent with the current
+      // config. If phases array differs (config was re-exported with different
+      // structure), we refuse to resume — start over is safer.
+      const sameShape = JSON.stringify(saved.phases) === JSON.stringify(sessionData.phases);
+      if (sameShape && typeof saved.currentPhase === 'number' && saved.currentPhase < saved.phases.length) {
+        resumeOffer = saved;
+      } else {
+        ResumeManager.clear(urlPid, urlDay, urlSession);
+      }
+    }
+  }
+
+  // ==========================================================
+// ONBOARDING ENGINE
+// ==========================================================
+const OnboardingSession = (function() {
+
+  function initConsent() {
+    const scroll   = document.getElementById("ob-consent-scroll");
+    const check    = document.getElementById("ob-consent-check");
+    const nextBtn  = document.getElementById("ob-consent-next");
+    const initials = document.getElementById("ob-initials");
+    const hint     = document.getElementById("ob-consent-hint");
+    const checkRow = document.getElementById("ob-consent-check-row");
+
+    scroll.innerHTML = config.onboarding.consent_text;
+
+    scroll.addEventListener("scroll", () => {
+      if (scroll.scrollHeight - scroll.scrollTop <= scroll.clientHeight + 40) {
+        if (checkRow) { checkRow.style.opacity = "1"; checkRow.style.pointerEvents = "auto"; }
+        if (initials) initials.disabled = false;
+        if (hint) hint.style.opacity = "0";
+      }
+    });
+
+    const updateNext = () => {
+      if (nextBtn) nextBtn.disabled = !(check && check.checked && initials && initials.value.trim().length >= 1);
+    };
+    if (check) check.addEventListener("change", updateNext);
+    if (initials) initials.addEventListener("input", updateNext);
+
+    if (nextBtn) nextBtn.onclick = () => {
+      sessionData.data.push({ type: "consent", agreed: true, initials: initials ? initials.value.trim().toUpperCase() : '', timestamp: new Date().toISOString() });
+      if (config.onboarding.ask_schedule !== false) {
+        show("screen-ob-schedule");
+      } else if (config.modules?.epat && window.ePATCore) {
+        show("screen-ob-device");
+      } else {
+        show("screen-ob-complete");
+      }
+    };
+  }
+
+  function initSchedule() {
+    const grid = document.getElementById("ob-day-grid");
+    if (!grid) return;
+    grid.querySelectorAll(".day-btn").forEach(btn => btn.addEventListener("click", () => btn.classList.toggle("selected")));
+
+    const nextBtn = document.getElementById("ob-schedule-next");
+    if (nextBtn) nextBtn.onclick = () => {
+      sessionData.data.push({
+        type: "schedule_pref",
+        days: [...grid.querySelectorAll(".day-btn.selected")].map(b => b.dataset.day),
+        windows: {
+          morning:   { start: (document.getElementById("ob-am-start") || {}).value, end: (document.getElementById("ob-am-end") || {}).value },
+          afternoon: { start: (document.getElementById("ob-pm-start") || {}).value, end: (document.getElementById("ob-pm-end") || {}).value },
+          evening:   { start: (document.getElementById("ob-ev-start") || {}).value, end: (document.getElementById("ob-ev-end") || {}).value }
+        }
+      });
+      if (config.modules?.epat && window.ePATCore) {
+        show("screen-ob-device");
+      } else {
+        show("screen-ob-complete");
+      }
+    };
+  }
+
+  function initDevice() {
+    const checks = { camera: false, torch: false, audio: false, signal: false };
+    const BeatDetector = window.ePATCore ? window.ePATCore.BeatDetector : null;
+    const statusEl = document.getElementById("ob-device-status");
+
+    function setCheck(id, state, msg) {
+      const el = document.getElementById("ob-check-" + id);
+      const st = document.getElementById("ob-check-" + id + "-status");
+      if (el) el.className = "check-item" + (state ? " " + state : "");
+      if (st && msg) st.textContent = msg;
+    }
+
+    const startBtn = document.getElementById("ob-device-start");
+    if (!startBtn) return;
+
+    startBtn.onclick = async () => {
+      startBtn.style.display = "none";
+      if (statusEl) statusEl.textContent = "Running checks…";
+
+      // Camera
+      try {
+        setCheck("camera", "testing", "Requesting access…");
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        stream.getTracks().forEach(t => t.stop());
+        checks.camera = true; setCheck("camera", "pass", "Access granted");
+      } catch(e) { setCheck("camera", "fail", "Permission denied"); }
+
+      // Torch
+      try {
+        setCheck("torch", "testing", "Testing flashlight…");
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        const track = stream.getVideoTracks()[0];
+        if (track.getCapabilities && track.getCapabilities().torch) {
+          await track.applyConstraints({ advanced: [{ torch: true }] });
+          await new Promise(r => setTimeout(r, 400));
+          await track.applyConstraints({ advanced: [{ torch: false }] });
+          checks.torch = true; setCheck("torch", "pass", "Flashlight available");
+        } else { setCheck("torch", "fail", "Not available on this device"); }
+        stream.getTracks().forEach(t => t.stop());
+      } catch(e) { setCheck("torch", "fail", "Error: " + e.message); }
+
+      // Audio
+      try {
+        setCheck("audio", "testing", "Playing test tone…");
+        const actx = new (window.AudioContext || window.webkitAudioContext)();
+        await actx.resume();
+        const osc = actx.createOscillator(), gain = actx.createGain();
+        osc.connect(gain); gain.connect(actx.destination);
+        gain.gain.setValueAtTime(0.15, actx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.2);
+        osc.start(); osc.stop(actx.currentTime + 0.2);
+        await new Promise(r => setTimeout(r, 300));
+        actx.close();
+        checks.audio = true; setCheck("audio", "pass", "Audio OK");
+      } catch(e) { setCheck("audio", "fail", "Audio error"); }
+
+      // PPG Signal
+      if (BeatDetector) {
+        setCheck("signal", "testing", "Place finger on camera…");
+        if (statusEl) statusEl.textContent = "Place your finger on the camera and flashlight…";
+
+        const previewWrap = document.getElementById("ob-signal-preview-wrap");
+        const previewCanvas = document.getElementById("ob-signal-preview");
+        let previewCtx = null;
+        if (previewCanvas) {
+          const dpr = window.devicePixelRatio || 1;
+          previewCanvas.width = 80 * dpr; previewCanvas.height = 80 * dpr;
+          previewCtx = previewCanvas.getContext("2d");
+          if (previewWrap) previewWrap.style.display = "flex";
+        }
+
+        let beatCount = 0;
+        await new Promise(resolve => {
+          const timeout = setTimeout(() => {
+            if (previewWrap) previewWrap.style.display = "none";
+            setCheck("signal", "fail", "No signal — try again"); resolve();
+          }, 20000);
+
+          BeatDetector.start({
+            video: document.getElementById("video-feed"),
+            canvas: document.getElementById("sampling-canvas"),
+            onBeatCb: (beat) => {
+              beatCount++;
+              setCheck("signal", "testing", `Detecting… ${beatCount} beats`);
+              if (beatCount >= 5) {
+                clearTimeout(timeout);
+                checks.signal = true;
+                if (previewWrap) previewWrap.style.display = "none";
+                setCheck("signal", "pass", `Signal confirmed — ${Math.round(beat.averageBPM)} BPM`);
+                BeatDetector.stop();
+                resolve();
+              }
+            },
+            onFingerChangeCb: (p) => {
+              if (statusEl) statusEl.textContent = p ? "Finger detected, measuring…" : "Place finger on camera and flashlight…";
+              if (previewCanvas) previewCanvas.style.borderColor = p ? "var(--accent)" : "var(--border)";
+            },
+            onPPGSampleCb: () => {
+              const vid = document.getElementById("video-feed");
+              if (vid && vid.readyState === vid.HAVE_ENOUGH_DATA && previewCtx) {
+                const dpr = window.devicePixelRatio || 1;
+                previewCtx.drawImage(vid, 0, 0, 80 * dpr, 80 * dpr);
+              }
+            }
+          });
+        });
+      } else {
+        checks.signal = true; setCheck("signal", "pass", "Skipped (no core)");
+      }
+
+      const allPass = Object.values(checks).every(v => v);
+      if (statusEl) {
+        statusEl.textContent = allPass ? "All checks passed." : "Some checks failed — you may still continue.";
+        statusEl.style.color = allPass ? "var(--accent-green)" : "var(--fg-muted)";
+      }
+      const nextEl = document.getElementById("ob-device-next");
+      const retryEl = document.getElementById("ob-device-retry");
+      if (nextEl) nextEl.style.display = "block";
+      if (!allPass && retryEl) retryEl.style.display = "block";
+    };
+
+    const retryEl = document.getElementById("ob-device-retry");
+    if (retryEl) retryEl.onclick = () => {
+      ["camera","torch","audio","signal"].forEach(id => setCheck(id, "", "Waiting…"));
+      if (statusEl) statusEl.textContent = "";
+      const nextEl = document.getElementById("ob-device-next");
+      if (nextEl) nextEl.style.display = "none";
+      retryEl.style.display = "none";
+      startBtn.style.display = "block";
+    };
+
+    const nextEl = document.getElementById("ob-device-next");
+    if (nextEl) nextEl.onclick = () => show("screen-ob-training");
+  }
+
+  function initTraining() {
+    const nextBtn = document.getElementById("ob-training-next");
+    if (!nextBtn) return;
+
+    if (isPreview) {
+      nextBtn.disabled = false;
+      nextBtn.onclick = () => show("screen-ob-complete");
+      return;
+    }
+
+    const SIM_BPM = 65, SIM_PERIOD_MS = (60 / SIM_BPM) * 1000;
+    const ALIGN_THRESHOLD = 0.12, ALIGN_HOLD_MS = 2000;
+
+    let dialAngle = 0, dialDragging = false, dialCx = 0, dialCy = 0, lastDialAngle = 0;
+    const INITIAL_KNOB = 0.5;
+    let knobValue = INITIAL_KNOB;
+    dialAngle = INITIAL_KNOB * Math.PI;
+    let simStartTime = null, animFrameId = null;
+    let alignedSince = null, gateUnlocked = false;
+    let lastScheduledBeat = -1, trainingACtx = null;
+
+    const canvas = document.getElementById("training-canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("training-status");
+    const dialEl = document.getElementById("training-dial");
+
+    // Build training dial ticks
+    const tickContainer = document.getElementById("training-dial-ticks");
+    if (tickContainer && !tickContainer.dataset.built) {
+      tickContainer.dataset.built = "1";
+      for (let i = 0; i < 60; i++) {
+        const t = document.createElement("div"); t.className = "training-tick";
+        t.style.transform = `rotate(${i * 6}deg)`;
+        if (i % 2 === 0) t.style.height = "8px";
+        if (i % 15 === 0) { t.style.height = "12px"; t.style.background = "var(--fg-muted)"; }
+        tickContainer.appendChild(t);
+      }
+    }
+
+    if (dialEl) {
+      dialEl.addEventListener("pointerdown", (e) => {
+        e.preventDefault(); dialDragging = true;
+        const r = dialEl.getBoundingClientRect();
+        dialCx = r.left + r.width / 2; dialCy = r.top + r.height / 2;
+        lastDialAngle = Math.atan2(e.clientY - dialCy, e.clientX - dialCx);
+        dialEl.setPointerCapture(e.pointerId);
+      }, { passive: false });
+
+      window.addEventListener("pointermove", (e) => {
+        if (!dialDragging) return; e.preventDefault();
+        const a = Math.atan2(e.clientY - dialCy, e.clientX - dialCx);
+        let d = a - lastDialAngle;
+        if (d > Math.PI) d -= 2 * Math.PI;
+        if (d < -Math.PI) d += 2 * Math.PI;
+        dialAngle += d; lastDialAngle = a;
+        dialEl.style.transform = `rotate(${dialAngle}rad)`;
+        let raw = (dialAngle / Math.PI) % 2;
+        if (raw > 1) raw -= 2; if (raw < -1) raw += 2;
+        knobValue = raw;
+      }, { passive: false });
+
+      window.addEventListener("pointerup", () => { dialDragging = false; });
+    }
+
+    function playTone(delayS) {
+      if (!trainingACtx) trainingACtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (trainingACtx.state === "suspended") trainingACtx.resume();
+      const when = trainingACtx.currentTime + Math.max(0, delayS);
+      const osc = trainingACtx.createOscillator(), gain = trainingACtx.createGain();
+      osc.connect(gain); gain.connect(trainingACtx.destination);
+      osc.frequency.value = 440;
+      gain.gain.setValueAtTime(0, when);
+      gain.gain.linearRampToValueAtTime(0.18, when + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.001, when + 0.08);
+      osc.start(when); osc.stop(when + 0.1);
+    }
+
+    function draw(ts) {
+      if (!simStartTime) simStartTime = ts;
+      const elapsed = ts - simStartTime;
+      const dpr = window.devicePixelRatio || 1;
+      if (canvas.width !== canvas.clientWidth * dpr) {
+        canvas.width = canvas.clientWidth * dpr;
+        canvas.height = canvas.clientHeight * dpr;
+      }
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+
+      const WINDOW_MS = 3000;
+      const beatCount = Math.floor(elapsed / SIM_PERIOD_MS);
+      const beatsInWindow = Math.ceil(WINDOW_MS / SIM_PERIOD_MS) + 2;
+
+      ctx.strokeStyle = "rgba(142,142,147,0.45)"; ctx.lineWidth = 1.5 * dpr;
+      for (let i = -1; i <= beatsInWindow; i++) {
+        const beatTime = (beatCount - beatsInWindow + i) * SIM_PERIOD_MS;
+        const age = elapsed - beatTime;
+        const x = (1 - age / WINDOW_MS) * W;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      }
+
+      const toneOffset = (SIM_PERIOD_MS / 2) * knobValue;
+      ctx.strokeStyle = "rgba(232,113,106,0.85)"; ctx.lineWidth = 2 * dpr;
+      for (let i = -1; i <= beatsInWindow; i++) {
+        const beatTime = (beatCount - beatsInWindow + i) * SIM_PERIOD_MS;
+        const toneTime = beatTime + toneOffset;
+        const age = elapsed - toneTime;
+        const x = (1 - age / WINDOW_MS) * W;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      }
+
+      if (lastScheduledBeat !== beatCount) {
+        const fireMs = (beatCount + 1) * SIM_PERIOD_MS + toneOffset;
+        const msUntil = fireMs - elapsed;
+        if (msUntil > 0) playTone(msUntil / 1000);
+        lastScheduledBeat = beatCount;
+      }
+
+      const isAligned = Math.abs(knobValue / 2) < ALIGN_THRESHOLD;
+      if (isAligned) {
+        if (!alignedSince) alignedSince = ts;
+        const held = ts - alignedSince;
+        if (statusEl) { statusEl.textContent = held >= ALIGN_HOLD_MS ? "Aligned — well done!" : "Hold it there…"; statusEl.className = "training-status aligned"; }
+        if (held >= ALIGN_HOLD_MS && !gateUnlocked) { gateUnlocked = true; nextBtn.disabled = false; }
+      } else {
+        alignedSince = null;
+        if (statusEl) { statusEl.textContent = "Rotate the dial to align the tone with the beats"; statusEl.className = "training-status"; }
+      }
+
+      animFrameId = requestAnimationFrame(draw);
+    }
+
+    const trainingScreen = document.getElementById("screen-ob-training");
+    if (trainingScreen) {
+      const observer = new MutationObserver(() => {
+        const active = trainingScreen.classList.contains("active");
+        if (active && !animFrameId) {
+          if (dialEl) dialEl.style.transform = `rotate(${dialAngle}rad)`;
+          simStartTime = null; lastScheduledBeat = -1; animFrameId = requestAnimationFrame(draw);
+        } else if (!active && animFrameId) {
+          cancelAnimationFrame(animFrameId); animFrameId = null;
+        }
+      });
+      observer.observe(trainingScreen, { attributes: true, attributeFilter: ["class"] });
+    }
+
+    nextBtn.onclick = () => {
+      if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+      if (trainingACtx) { trainingACtx.close(); trainingACtx = null; }
+      show("screen-ob-complete");
+    };
+  }
+
+  function initComplete() {
+    // ---- FIX: correct element ID is "ob-complete-pat" not "ob-complete" ----
+    const completeBtn = document.getElementById("ob-complete-pat");
+    if (completeBtn) {
+      completeBtn.onclick = () => {
+        // Hand off to the normal phase runner — onboarding is done,
+        // now run whatever phases are in sessionData.phases (if any),
+        // or just finalize if there are none.
+        sessionData.type = "onboarding_complete";
+        sessionData.completedOnboarding = new Date().toISOString();
+        // If ePAT is configured and enabled, kick off a fresh PAT-only run
+        if (config.modules?.epat && window.ePATCore && typeof ePAT !== 'undefined') {
+          sessionData.phases = ['epat'];
+          sessionData.currentPhase = 0;
+          runNextPhase();
+        } else {
+          advancePhase();
+        }
+      };
+    }
+  }
+
+  return {
+    start() {
+      initConsent();
+      initSchedule();
+      initDevice();
+      initTraining();
+      initComplete();
+      show("screen-ob-consent");
+    }
+  };
+})();
+
+"use strict";
+
+// ==========================================================
+// EMA PAGINATION ENGINE — v1.4
+// ==========================================================
+//
+// Changes from v1.3:
+//
+// NEW QUESTION TYPE: affect_grid
+//   A 2D tap-target for core affect (valence × arousal). Based on the
+//   Russell circumplex / affect-grid tradition (Russell, Weiss, & Mendelsohn,
+//   1989 and the Yik et al. (2011) refinements). Captures valence and
+//   arousal as a joint {x, y} point in [-1, 1] rather than two independent
+//   sliders — which is the conceptually-correct way to measure core affect
+//   under a constructionist framework because it forces participants to
+//   commit to a single integrated location.
+//
+//   Config:
+//     {
+//       id: "q_affect",
+//       type: "affect_grid",
+//       text: "Right now, how are you feeling?",
+//       valence_labels:  ["Unpleasant", "Pleasant"],    // [low, high]
+//       arousal_labels:  ["Deactivated", "Activated"],  // [low, high]
+//       show_quadrant_labels: true,                     // optional
+//       required: true, condition, block, windows
+//     }
+//
+//   Stored value: { valence: -1..1, arousal: -1..1 }
+//   CSV serialization: "valence;arousal" (see Upload._serializeValue)
+//   CSV response_numeric: '' (it's 2D — use valence/arousal columns in R)
+//
+//   For analysts: the valence/arousal values are already orthogonal and
+//   standardized to [-1, 1] so you can drop them straight into a
+//   circumplex plot or feed them into ILR/multilevel models without
+//   rescaling.
+//
+// PRESERVED from v1.3:
+//   - Per-question respondedAt timestamps
+//   - Skip-logic evaluation per page
+//   - Orphan page-break dropping
+//   - Prefixed phase tokens only (pre_<wid> / post_<wid>)
+// ==========================================================
+
+const EMA = (function() {
+  let emaPages         = [];
+  let currentPageIndex = 0;
+  let emaResponses     = null;
+
+  // -----------------------------------------------------------------------
+  // buildPages — unchanged from v1.3
+  // -----------------------------------------------------------------------
+  function buildPages(windowId, blockDir) {
+    emaPages = [];
+    let currentBlock = [];
+
+    config.ema.questions.forEach(q => {
+      if (q.type === 'page_break') {
+        if (currentBlock.length > 0) {
+          emaPages.push(currentBlock);
+          currentBlock = [];
+        }
+        return;
+      }
+
+      const windowMatch = q.windows === null
+        || q.windows === undefined
+        || (windowId && q.windows.includes(windowId));
+
+      const block = q.block || 'both';
+      const blockMatch = blockDir === 'post'
+        ? (block === 'post' || block === 'both')
+        : (block === 'pre'  || block === 'both');
+
+      if (windowMatch && blockMatch) {
+        currentBlock.push(q);
+      }
+    });
+
+    if (currentBlock.length > 0) emaPages.push(currentBlock);
+  }
+
+  function recordResponse(qid, value) {
+    emaResponses.responses[qid] = {
+      value: value,
+      respondedAt: new Date().toISOString()
+    };
+  }
+
+  function valueOf(qid) {
+    const rec = emaResponses.responses[qid];
+    if (rec === undefined) return undefined;
+    return (rec && typeof rec === 'object' && 'value' in rec) ? rec.value : rec;
+  }
+
+  // -----------------------------------------------------------------------
+  // Affect grid builder — builds an SVG tap-target and wires pointer events.
+  // Uses CSS variables for theming so it stays consistent across dark/light.
+  // -----------------------------------------------------------------------
+  function buildAffectGrid(q, wrapper) {
+    const cur = valueOf(q.id);
+    const initial = (cur && typeof cur === 'object' && 'valence' in cur && 'arousal' in cur)
+      ? cur
+      : null;
+
+    const vLabels = q.valence_labels || ['Unpleasant', 'Pleasant'];
+    const aLabels = q.arousal_labels || ['Deactivated', 'Activated'];
+    const showQuadrants = q.show_quadrant_labels !== false; // default true
+
+    const container = document.createElement('div');
+    container.className = 'affect-grid-container';
+    container.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:8px;margin:0 auto;max-width:360px;width:100%;';
+
+    // Arousal high label (top)
+    const aHi = document.createElement('div');
+    aHi.textContent = aLabels[1];
+    aHi.style.cssText = 'font-size:0.82rem;color:var(--fg-muted);font-weight:500;';
+    container.appendChild(aHi);
+
+    // Row: [valence-low label] [grid] [valence-high label]
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;';
+
+    const vLo = document.createElement('div');
+    vLo.textContent = vLabels[0];
+    vLo.style.cssText = 'font-size:0.82rem;color:var(--fg-muted);font-weight:500;writing-mode:vertical-rl;transform:rotate(180deg);flex-shrink:0;';
+    row.appendChild(vLo);
+
+    // The grid itself — SVG so we get crisp rendering + easy hit testing
+    const gridWrap = document.createElement('div');
+    gridWrap.style.cssText = 'flex:1;aspect-ratio:1/1;position:relative;touch-action:none;user-select:none;';
+
+    const SIZE = 300;
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${SIZE} ${SIZE}`);
+    svg.style.cssText = 'width:100%;height:100%;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius);display:block;cursor:crosshair;';
+
+    // Grid lines (3x3 reference lines)
+    for (let i = 1; i <= 3; i++) {
+      const x = (SIZE / 4) * i;
+      const lineV = document.createElementNS(svgNS, 'line');
+      lineV.setAttribute('x1', x); lineV.setAttribute('x2', x);
+      lineV.setAttribute('y1', 0); lineV.setAttribute('y2', SIZE);
+      lineV.setAttribute('stroke', 'var(--border)');
+      lineV.setAttribute('stroke-width', i === 2 ? '1.5' : '0.5');
+      lineV.setAttribute('stroke-dasharray', i === 2 ? '' : '2,3');
+      svg.appendChild(lineV);
+
+      const lineH = document.createElementNS(svgNS, 'line');
+      lineH.setAttribute('y1', x); lineH.setAttribute('y2', x);
+      lineH.setAttribute('x1', 0); lineH.setAttribute('x2', SIZE);
+      lineH.setAttribute('stroke', 'var(--border)');
+      lineH.setAttribute('stroke-width', i === 2 ? '1.5' : '0.5');
+      lineH.setAttribute('stroke-dasharray', i === 2 ? '' : '2,3');
+      svg.appendChild(lineH);
+    }
+
+    // Optional quadrant labels (faint)
+    if (showQuadrants) {
+      const quadLabels = [
+        { x: SIZE * 0.25, y: SIZE * 0.25, text: 'Tense'    },   // high arousal, low valence
+        { x: SIZE * 0.75, y: SIZE * 0.25, text: 'Excited'  },   // high arousal, high valence
+        { x: SIZE * 0.25, y: SIZE * 0.75, text: 'Depressed'},   // low arousal, low valence
+        { x: SIZE * 0.75, y: SIZE * 0.75, text: 'Calm'     }    // low arousal, high valence
+      ];
+      quadLabels.forEach(q => {
+        const txt = document.createElementNS(svgNS, 'text');
+        txt.setAttribute('x', q.x); txt.setAttribute('y', q.y);
+        txt.setAttribute('text-anchor', 'middle');
+        txt.setAttribute('dominant-baseline', 'middle');
+        txt.setAttribute('fill', 'var(--fg-muted)');
+        txt.setAttribute('font-size', '11');
+        txt.setAttribute('opacity', '0.5');
+        txt.textContent = q.text;
+        svg.appendChild(txt);
+      });
+    }
+
+    // The marker
+    const marker = document.createElementNS(svgNS, 'circle');
+    marker.setAttribute('r', '14');
+    marker.setAttribute('fill', 'var(--accent)');
+    marker.setAttribute('stroke', 'var(--bg)');
+    marker.setAttribute('stroke-width', '3');
+    marker.style.display = initial ? 'block' : 'none';
+    svg.appendChild(marker);
+
+    // "Tap to respond" hint, shown until first touch
+    const hint = document.createElementNS(svgNS, 'text');
+    hint.setAttribute('x', SIZE / 2);
+    hint.setAttribute('y', SIZE / 2 + 4);
+    hint.setAttribute('text-anchor', 'middle');
+    hint.setAttribute('fill', 'var(--fg-muted)');
+    hint.setAttribute('font-size', '13');
+    hint.textContent = 'Tap to place';
+    hint.style.pointerEvents = 'none';
+    if (initial) hint.style.display = 'none';
+    svg.appendChild(hint);
+
+    // ---- Coordinate math ----
+    // Screen → [-1, 1]:
+    //   valence = (x / SIZE) * 2 - 1         (left = -1, right = +1)
+    //   arousal = 1 - (y / SIZE) * 2         (top = +1, bottom = -1)
+    function svgPointFromClientPoint(clientX, clientY) {
+      const pt = svg.createSVGPoint();
+      pt.x = clientX; pt.y = clientY;
+      return pt.matrixTransform(svg.getScreenCTM().inverse());
+    }
+
+    function updateFromPoint(svgX, svgY) {
+      const x = Math.max(0, Math.min(SIZE, svgX));
+      const y = Math.max(0, Math.min(SIZE, svgY));
+      marker.setAttribute('cx', x);
+      marker.setAttribute('cy', y);
+      marker.style.display = 'block';
+      hint.style.display = 'none';
+
+      const valence = +((x / SIZE) * 2 - 1).toFixed(3);
+      const arousal = +(1 - (y / SIZE) * 2).toFixed(3);
+      recordResponse(q.id, { valence, arousal });
+      checkSubmitFn();
+    }
+
+    // Place initial marker if we had a prior value (resumption or going back)
+    if (initial) {
+      const x = ((initial.valence + 1) / 2) * SIZE;
+      const y = ((1 - initial.arousal) / 2) * SIZE;
+      marker.setAttribute('cx', x);
+      marker.setAttribute('cy', y);
+    }
+
+    // Unified pointer handling (works for mouse + touch + pen)
+    let dragging = false;
+    const onDown = e => {
+      dragging = true;
+      e.preventDefault();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const pt = svgPointFromClientPoint(clientX, clientY);
+      updateFromPoint(pt.x, pt.y);
+    };
+    const onMove = e => {
+      if (!dragging) return;
+      e.preventDefault();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const pt = svgPointFromClientPoint(clientX, clientY);
+      updateFromPoint(pt.x, pt.y);
+    };
+    const onUp = () => { dragging = false; };
+
+    svg.addEventListener('mousedown',  onDown);
+    svg.addEventListener('mousemove',  onMove);
+    window.addEventListener('mouseup', onUp);
+    svg.addEventListener('touchstart', onDown, { passive: false });
+    svg.addEventListener('touchmove',  onMove, { passive: false });
+    svg.addEventListener('touchend',   onUp);
+
+    gridWrap.appendChild(svg);
+    row.appendChild(gridWrap);
+
+    const vHi = document.createElement('div');
+    vHi.textContent = vLabels[1];
+    vHi.style.cssText = 'font-size:0.82rem;color:var(--fg-muted);font-weight:500;writing-mode:vertical-rl;flex-shrink:0;';
+    row.appendChild(vHi);
+
+    container.appendChild(row);
+
+    // Arousal low label (bottom)
+    const aLo = document.createElement('div');
+    aLo.textContent = aLabels[0];
+    aLo.style.cssText = 'font-size:0.82rem;color:var(--fg-muted);font-weight:500;';
+    container.appendChild(aLo);
+
+    wrapper.appendChild(container);
+  }
+
+  // Shared checkSubmit reference so affect-grid can call it.
+  // Set inside renderCurrentPage before any question builder runs.
+  let checkSubmitFn = () => {};
+
+  // -----------------------------------------------------------------------
+  // renderCurrentPage
+  // -----------------------------------------------------------------------
+  function renderCurrentPage() {
+    const container = document.getElementById('ema-single-container');
+    const nextBtn   = document.getElementById('ema-next-btn');
+
+    let visibleQuestions = [];
+    while (currentPageIndex < emaPages.length) {
+      visibleQuestions = emaPages[currentPageIndex].filter(q => {
+        return evalCond(q.condition, emaResponses.responses);
+      });
+      if (visibleQuestions.length > 0) break;
+      currentPageIndex++;
+    }
+
+    if (currentPageIndex >= emaPages.length) {
+      emaResponses.submittedAt = new Date().toISOString();
+      sessionData.data.push(emaResponses);
+      advancePhase();
+      return;
+    }
+
+    const pct = Math.round(((currentPageIndex + 1) / emaPages.length) * 100);
+    document.getElementById('ema-progress-fill').style.width = pct + '%';
+    container.innerHTML = '';
+
+    function checkSubmit() {
+      const allAnswered = visibleQuestions.every(q => {
+        if (!q.required) return true;
+        const v = valueOf(q.id);
+        if (v === undefined || v === null || v === '') return false;
+        if (Array.isArray(v) && v.length === 0) return false;
+        // affect_grid has an object shape — check for both coords
+        if (q.type === 'affect_grid') {
+          return v && typeof v === 'object' && 'valence' in v && 'arousal' in v;
+        }
+        return true;
+      });
+      nextBtn.disabled = !allAnswered;
+    }
+    checkSubmitFn = checkSubmit;  // share with builders
+
+    visibleQuestions.forEach(q => {
+      const wrapper = document.createElement('div');
+      wrapper.style.marginBottom = '48px';
+
+      const qTitle = document.createElement('div');
+      qTitle.className = 'ema-question';
+      qTitle.textContent = q.text || '';
+      wrapper.appendChild(qTitle);
+
+      if (q.type === 'slider') {
+        const grp = document.createElement('div');
+        grp.className = 'slider-group';
+        const cur = valueOf(q.id);
+        const defaultVal = (cur !== undefined && cur !== null && cur !== '')
+          ? cur
+          : Math.round((Number(q.min) + Number(q.max)) / 2);
+        grp.innerHTML = `
+          <div class="slider-val-display" data-for="${q.id}">${defaultVal}${q.unit ? ' ' + q.unit : ''}</div>
+          <input type="range" class="range-slider" data-qid="${q.id}"
+                 min="${q.min}" max="${q.max}" step="${q.step || 1}" value="${defaultVal}">
+          <div class="slider-labels">
+            <span>${(q.anchors || ['',''])[0] || ''}</span>
+            <span>${(q.anchors || ['',''])[1] || ''}</span>
+          </div>
+        `;
+        const slider = grp.querySelector('input');
+        const disp   = grp.querySelector('.slider-val-display');
+        let touched = cur !== undefined && cur !== null && cur !== '';
+        slider.addEventListener('input', () => {
+          touched = true;
+          const v = Number(slider.value);
+          disp.textContent = v + (q.unit ? ' ' + q.unit : '');
+          recordResponse(q.id, v);
+          checkSubmit();
+        });
+        if (touched && (cur !== valueOf(q.id))) {
+          recordResponse(q.id, Number(defaultVal));
+        }
+        wrapper.appendChild(grp);
+
+      } else if (q.type === 'choice') {
+        const grp = document.createElement('div');
+        grp.className = 'choice-group';
+        (q.options || []).forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = 'choice-btn';
+          btn.textContent = opt;
+          btn.dataset.val = opt;
+          btn.addEventListener('click', () => {
+            grp.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            recordResponse(q.id, opt);
+            checkSubmit();
+          });
+          if (valueOf(q.id) === opt) btn.classList.add('selected');
+          grp.appendChild(btn);
+        });
+        wrapper.appendChild(grp);
+
+      } else if (q.type === 'checkbox') {
+        const grp = document.createElement('div');
+        grp.className = 'choice-group';
+        const selected = new Set(Array.isArray(valueOf(q.id)) ? valueOf(q.id) : []);
+        (q.options || []).forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = 'choice-btn';
+          btn.textContent = opt;
+          btn.dataset.val = opt;
+          if (selected.has(opt)) btn.classList.add('selected');
+          btn.addEventListener('click', () => {
+            if (selected.has(opt)) { selected.delete(opt); btn.classList.remove('selected'); }
+            else { selected.add(opt); btn.classList.add('selected'); }
+            recordResponse(q.id, Array.from(selected));
+            checkSubmit();
+          });
+          grp.appendChild(btn);
+        });
+        wrapper.appendChild(grp);
+
+      } else if (q.type === 'affect_grid') {
+        buildAffectGrid(q, wrapper);
+
+      } else {
+        // Generic text / numeric input
+        const grp = document.createElement('div');
+        grp.className = 'text-group';
+        const inp = document.createElement('input');
+        inp.type = (q.type === 'numeric') ? 'number' : 'text';
+        inp.className = 'text-input';
+        const cur = valueOf(q.id);
+        if (cur !== undefined && cur !== null) inp.value = cur;
+        inp.addEventListener('input', () => {
+          const v = (q.type === 'numeric' && inp.value !== '') ? Number(inp.value) : inp.value;
+          recordResponse(q.id, v);
+          checkSubmit();
+        });
+        grp.appendChild(inp);
+        wrapper.appendChild(grp);
+      }
+
+      container.appendChild(wrapper);
+    });
+
+    checkSubmit();
+
+    const isLastPage  = currentPageIndex === emaPages.length - 1;
+    const isLastPhase = sessionData.currentPhase === sessionData.phases.length - 1;
+    nextBtn.textContent = (isLastPage && isLastPhase) ? 'Submit Check-In' : 'Next';
+
+    container.classList.remove('fade-out', 'fade-in');
+    void container.offsetWidth;
+    container.classList.add('fade-in');
+    setTimeout(() => container.classList.remove('fade-in'), 50);
+  }
+
+  function installNextHandler() {
+    document.getElementById('ema-next-btn').onclick = () => {
+      const container = document.getElementById('ema-single-container');
+      container.classList.add('fade-out');
+      setTimeout(() => { currentPageIndex++; renderCurrentPage(); }, 300);
+    };
+  }
+
+  return {
+    start(phaseToken) {
+      let blockDir = 'pre';
+      let windowId = null;
+
+      if (phaseToken.startsWith('pre_')) {
+        blockDir = 'pre';
+        windowId = phaseToken.slice(4);
+      } else if (phaseToken.startsWith('post_')) {
+        blockDir = 'post';
+        windowId = phaseToken.slice(5);
+      } else {
+        console.warn('EMA.start received unprefixed phase token:', phaseToken);
+        windowId = phaseToken;
+      }
+
+      emaResponses = {
+        type:        'ema_response',
+        phase:       phaseToken,
+        windowId:    windowId,
+        block:       blockDir,
+        startedAt:   new Date().toISOString(),
+        submittedAt: null,
+        responses:   {}
+      };
+
+      buildPages(windowId, blockDir);
+      currentPageIndex = 0;
+
+      if (emaPages.length === 0) {
+        emaResponses.submittedAt = emaResponses.startedAt;
+        sessionData.data.push(emaResponses);
+        advancePhase();
+        return;
+      }
+
+      installNextHandler();
+      show('screen-ema');
+      renderCurrentPage();
+    }
+  };
+})();
+
+// ==========================================================
+// PAT SENSOR LOGIC (Full Port)
+// ==========================================================
+const ePAT = (function() {
+  const core = window.ePATCore;
+  const NUM_TRIALS = config.modules?.epat?.trials || 20;
+  const NUM_PRACTICES = config.modules?.epat?.two_phase_practice ? 2 : 0;
+  const IBI_CHANGE_THRESHOLD = 0.30;
+  const SQI_GOOD = 0.008, SQI_WARN = 0.004;
+  const BODY_MAP_EVERY = config.modules?.epat?.body_map ? 4 : Infinity;
+
+  let trialIP = [], trialAP = [], trialKS = [], trialCD = [], trialIE = [], trialRecordedHR = [], trialInstantBpms = [];
+  let trialToneTimings = [], trialFingerLossEvents = [], trialInitialKnob = 0;
+  let trialLastIbi = 0, trialCleanBeats = 0, trialFlaggedBeats = 0, trialIbiFlags = [];
+  let trialSqiTimeSeries = [], trialSqiBadSeconds = 0, trialLastSqiCheckTime = 0, trialDicroticRejections = [];
+  let currentInstantPeriod = 0, currentAveragePeriod = 0;
+
+  let baselineTimer = null, baselineBPMs = [], baselineStartTime = 0;
+  let isFingerPresent = false, currentSqiValue = 0, lastBeatPerfTime = performance.now(), sensorCheckInterval = null;
+  let dialEl, dialAngle = 0, dialDragging = false, dialCx = 0, dialCy = 0, lastAngle = 0;
+  let trialVisualOffset = 0, currentKnobValue = 0, currentTrialIndex = -(NUM_PRACTICES);
+  let trialDetectorRunning = false, trialRunning = false;
+
+  // ----------------------------------------------------------
+  // DIAL INIT
+  // ----------------------------------------------------------
+  function initDial() {
+    dialEl = document.getElementById("rotary-dial");
+    if (!dialEl) return;
+
+    // Generate tick marks
+    const tickContainer = document.getElementById("rotary-dial-ticks");
+    if (tickContainer && !tickContainer.dataset.built) {
+      tickContainer.dataset.built = "1";
+      for (let i = 0; i < 72; i++) {
+        const tick = document.createElement('div');
+        tick.className = 'dial-tick';
+        tick.style.transform = `rotate(${i * 5}deg)`;
+        if (i % 2 === 0) tick.style.height = '10px';
+        if (i % 18 === 0) { tick.style.height = '14px'; tick.style.background = 'var(--fg-muted)'; }
+        tickContainer.appendChild(tick);
+      }
+    }
+
+    dialEl.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); dialDragging = true;
+      const rect = dialEl.getBoundingClientRect();
+      dialCx = rect.left + rect.width / 2; dialCy = rect.top + rect.height / 2;
+      lastAngle = Math.atan2(e.clientY - dialCy, e.clientX - dialCx);
+      dialEl.setPointerCapture(e.pointerId);
+    }, { passive: false });
+
+    window.addEventListener("pointermove", (e) => {
+      if (!dialDragging) return; e.preventDefault();
+      const a = Math.atan2(e.clientY - dialCy, e.clientX - dialCx);
+      let d = a - lastAngle;
+      if (d > Math.PI) d -= 2 * Math.PI;
+      if (d < -Math.PI) d += 2 * Math.PI;
+      dialAngle += d; lastAngle = a;
+      dialEl.style.transform = `rotate(${dialAngle}rad)`;
+
+      let rawPhase = ((dialAngle + trialVisualOffset) / Math.PI) % 2;
+      if (rawPhase > 1) rawPhase -= 2;
+      if (rawPhase < -1) rawPhase += 2;
+      currentKnobValue = rawPhase;
+      document.getElementById("confirm-trial-btn").disabled = false;
+    }, { passive: false });
+
+    window.addEventListener("pointerup", () => { dialDragging = false; });
+  }
+
+  // ----------------------------------------------------------
+  // SENSOR WATCHDOG
+  // ----------------------------------------------------------
+  function startSensorWatchdog() {
+    if (sensorCheckInterval) clearInterval(sensorCheckInterval);
+    lastBeatPerfTime = performance.now();
+    sensorCheckInterval = setInterval(updateSensorWarning, 250);
+  }
+
+  function stopSensorWatchdog() {
+    if (sensorCheckInterval) clearInterval(sensorCheckInterval);
+    const overlay = document.getElementById("sensor-warning-overlay");
+    if (overlay) overlay.classList.remove("visible");
+  }
+
+  function updateSensorWarning() {
+    const overlay = document.getElementById("sensor-warning-overlay");
+    const text = document.getElementById("sensor-warning-text");
+    const circle = document.getElementById("sensor-preview-circle");
+    if (!overlay) return;
+
+    if (!isFingerPresent) {
+      overlay.classList.add("visible");
+      text.innerHTML = "Place finger on camera<br><span style='font-size:0.85rem;color:var(--fg-muted);font-weight:400;margin-top:6px;display:block;'>Cover both lens and flash completely</span>";
+      circle.style.borderColor = "var(--fg)"; circle.style.boxShadow = "none";
+    } else if (currentSqiValue < SQI_WARN) {
+      overlay.classList.add("visible");
+      text.innerHTML = "Make the circle red<br><span style='font-size:0.85rem;color:var(--fg-muted);font-weight:400;margin-top:6px;display:block;'>Adjust pressure gently until the feed glows solid red</span>";
+      circle.style.borderColor = "var(--accent-red)"; circle.style.boxShadow = "0 0 20px rgba(255, 69, 58, 0.3)";
+    } else if (performance.now() - lastBeatPerfTime > 2500) {
+      overlay.classList.add("visible");
+      text.innerHTML = "Acquiring signal…<br><span style='font-size:0.85rem;color:var(--fg-muted);font-weight:400;margin-top:6px;display:block;'>Hold completely still</span>";
+      circle.style.borderColor = "var(--fg-muted)"; circle.style.boxShadow = "none";
+    } else {
+      overlay.classList.remove("visible");
+    }
+  }
+
+  // ----------------------------------------------------------
+  // IBI QUALITY TRACKING
+  // ----------------------------------------------------------
+  function processIbi(beat) {
+    const ibiMs = beat.instantPeriod * 1000;
+    let flag = null;
+    if (trialLastIbi > 0) {
+      const changeFrac = Math.abs(ibiMs - trialLastIbi) / trialLastIbi;
+      if (changeFrac > IBI_CHANGE_THRESHOLD) {
+        flag = { type: 'successive_diff', magnitude: Math.round(changeFrac * 1000) / 10, prevIbi: Math.round(trialLastIbi), currentIbi: Math.round(ibiMs) };
+        trialFlaggedBeats++;
+      } else { trialCleanBeats++; }
+    } else { trialCleanBeats++; }
+    trialLastIbi = ibiMs;
+    trialIbiFlags.push({ time: beat.time, ibiMs: Math.round(ibiMs * 10) / 10, flag });
+  }
+
+  // ----------------------------------------------------------
+  // PRE-TRIAL INSTRUCTION SCREEN
+  // Shown after baseline completes and before every ePAT block.
+  // Uses screen-onboarding which already exists in the HTML shell.
+  // ----------------------------------------------------------
+  function showPreTrialInstructions(onContinue) {
+    show("screen-onboarding");
+    const container = document.getElementById("onboarding-container");
+    const nextBtn   = document.getElementById("onboarding-next-btn");
+
+    container.innerHTML = `
+      <div style="text-align:center; padding: 8px 0 32px;">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--accent)"
+          stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:20px;">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+        <h1 style="margin-bottom:12px;">Heartbeat Task</h1>
+        <p style="margin-bottom:32px;">Place your fingertip firmly over the <strong style="color:var(--fg);">rear camera and flashlight</strong>. You'll hear a tone — rotate the dial until the tone lands exactly on each heartbeat.</p>
+
+        <div style="width:100%; max-width:340px; margin: 0 auto 24px; text-align:left;">
+          <div style="display:flex; align-items:flex-start; gap:14px; margin-bottom:18px;">
+            <div style="width:36px; height:36px; border-radius:50%; background:var(--bg-elevated); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem;">📷</div>
+            <div>
+              <div style="font-size:0.95rem; font-weight:600; color:var(--fg); margin-bottom:3px;">Camera + Flashlight</div>
+              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Cover the lens closest to the flash completely. The circle on screen should glow solid red.</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:flex-start; gap:14px; margin-bottom:18px;">
+            <div style="width:36px; height:36px; border-radius:50%; background:var(--bg-elevated); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem;">🎧</div>
+            <div>
+              <div style="font-size:0.95rem; font-weight:600; color:var(--fg); margin-bottom:3px;">Turn volume up</div>
+              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">You need to hear the tone clearly. Silent mode will block it.</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:flex-start; gap:14px;">
+            <div style="width:36px; height:36px; border-radius:50%; background:var(--bg-elevated); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem;">🤚</div>
+            <div>
+              <div style="font-size:0.95rem; font-weight:600; color:var(--fg); margin-bottom:3px;">Stay still</div>
+              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Any movement affects the heart rate signal. Rest your elbow on a surface if possible.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    nextBtn.textContent = "I'm ready →";
+    nextBtn.disabled = false;
+    nextBtn.onclick = () => {
+      nextBtn.onclick = null;
+      onContinue();
+    };
+  }
+
+  // ----------------------------------------------------------
+  // BASELINE
+  // ----------------------------------------------------------
+  async function startBaseline() {
+    show("screen-baseline");
+    baselineBPMs = []; baselineStartTime = Date.now();
+    currentTrialIndex = -(NUM_PRACTICES);
+    initDial();
+
+    const bpmEl = document.getElementById("baseline-bpm");
+    const progressCircle = document.getElementById("baseline-progress-circle");
+    const circ = 2 * Math.PI * 85;
+    const DUR = isPreview ? 3 : 120;
+
+    if (!core) {
+      // Preview / no-core simulation
+      let elapsed = 0;
+      bpmEl.textContent = '65';
+      baselineTimer = setInterval(() => {
+        elapsed += 1;
+        progressCircle.style.strokeDashoffset = circ * (1 - Math.min(1, elapsed / DUR));
+        if (elapsed >= DUR) {
+          clearInterval(baselineTimer);
+          sessionData.data.push({ type: "baseline", ppgSampleRate: 30, finalSqi: 0.5 });
+          showPreTrialInstructions(() => startTrial());
+        }
+      }, 1000);
+      return;
+    }
+
+    await core.WakeLockCtrl.request();
+    const videoElement = document.getElementById("video-feed");
+    const previewCtx = document.getElementById("sensor-preview-circle").getContext("2d");
+    document.getElementById("sensor-preview-circle").width = 120 * (window.devicePixelRatio || 1);
+    document.getElementById("sensor-preview-circle").height = 120 * (window.devicePixelRatio || 1);
+
+    startSensorWatchdog();
+
+    await core.BeatDetector.start({
+      video: videoElement, canvas: document.getElementById("sampling-canvas"),
+      onBeatCb: (beat) => {
+        baselineBPMs.push(beat.instantBPM);
+        bpmEl.textContent = Math.round(beat.averageBPM);
+        lastBeatPerfTime = performance.now();
+      },
+      onFingerChangeCb: (p) => { isFingerPresent = p; updateSensorWarning(); },
+      onSqiUpdateCb: (sqi) => { currentSqiValue = sqi; updateSensorWarning(); },
+      onPPGSampleCb: () => {
+        if (videoElement && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
+          previewCtx.drawImage(videoElement, 0, 0, 120 * (window.devicePixelRatio || 1), 120 * (window.devicePixelRatio || 1));
+        }
+      }
+    });
+
+    baselineTimer = setInterval(async () => {
+      const elapsed = (Date.now() - baselineStartTime) / 1000, remaining = Math.max(0, DUR - elapsed);
+      progressCircle.style.strokeDashoffset = circ * (1 - Math.min(1, elapsed / DUR));
+
+      if (remaining <= 0) {
+        clearInterval(baselineTimer); stopSensorWatchdog();
+        core.BeatDetector.setCallbacks({ onBeatCb: null, onFingerChangeCb: null, onPPGSampleCb: null, onSqiUpdateCb: null, onDicroticRejectCb: null });
+        trialDetectorRunning = true;
+
+        const diagnostics = core.BeatDetector.getDiagnostics();
+        const finalSqi = core.BeatDetector.getSqi();
+
+        if (!isPreview && (baselineBPMs.length < 80 || diagnostics.clipRate > 20 || finalSqi < 0.002)) {
+          await core.BeatDetector.stop(); trialDetectorRunning = false;
+          setTimeout(() => startBaseline(), 4000); // Silent restart
+          return;
+        }
+
+        sessionData.data.push({
+          type: "baseline", recordedHR: baselineBPMs.map(Math.round),
+          totalBeats: baselineBPMs.length, ppgSampleRate: core.BeatDetector.getActualFPS(),
+          ppgDiagnostics: diagnostics, finalSqi: finalSqi
+        });
+
+        // Show instructions before first trial
+        showPreTrialInstructions(() => startTrial());
+      }
+    }, 1000);
+  }
+
+  // ----------------------------------------------------------
+  // TRIAL
+  // ----------------------------------------------------------
+  async function startTrial() {
+    show("screen-trial");
+    trialIP = []; trialAP = []; trialKS = []; trialCD = []; trialIE = [];
+    trialRecordedHR = []; trialInstantBpms = [];
+    trialToneTimings = []; trialFingerLossEvents = [];
+    trialLastIbi = 0; trialCleanBeats = 0; trialFlaggedBeats = 0; trialIbiFlags = [];
+    trialSqiTimeSeries = []; trialSqiBadSeconds = 0; trialLastSqiCheckTime = 0; trialDicroticRejections = [];
+    currentInstantPeriod = 0; currentAveragePeriod = 0;
+
+    // Randomize knob starting position per trial
+    trialVisualOffset = (Math.random() * 2 - 1) * Math.PI;
+    dialAngle = 0;
+    if (dialEl) dialEl.style.transform = `rotate(0rad)`;
+
+    let rawPhase = ((dialAngle + trialVisualOffset) / Math.PI) % 2;
+    if (rawPhase > 1) rawPhase -= 2;
+    if (rawPhase < -1) rawPhase += 2;
+    currentKnobValue = rawPhase;
+    trialInitialKnob = currentKnobValue;
+
+    trialRunning = true;
+    document.getElementById("trial-label").textContent = currentTrialIndex < 0
+      ? `Practice Trial ${NUM_PRACTICES + currentTrialIndex + 1}`
+      : `Trial ${currentTrialIndex + 1} of ${NUM_TRIALS}`;
+    document.getElementById("confirm-trial-btn").disabled = true;
+
+    if (!core) return;
+
+    core.MotionDetector.start();
+    const videoElement = document.getElementById("video-feed");
+    const previewCtx = document.getElementById("sensor-preview-circle").getContext("2d");
+    document.getElementById("sensor-preview-circle").width = 120 * (window.devicePixelRatio || 1);
+    document.getElementById("sensor-preview-circle").height = 120 * (window.devicePixelRatio || 1);
+
+    startSensorWatchdog();
+
+    const beatCb = (beat) => {
+      lastBeatPerfTime = performance.now();
+      const prev = currentInstantPeriod;
+      currentInstantPeriod = beat.instantPeriod; currentAveragePeriod = beat.averagePeriod;
+      trialIP.push(currentInstantPeriod); trialAP.push(currentAveragePeriod);
+      trialKS.push(currentKnobValue); trialIE.push(prev - currentInstantPeriod);
+
+      const delay = (currentAveragePeriod / 2) * currentKnobValue;
+      trialCD.push(delay); trialRecordedHR.push(beat.instantBPM); trialInstantBpms.push(beat.averageBPM);
+      processIbi(beat);
+
+      const dNow = delay < 0 ? currentInstantPeriod + delay : delay;
+      if (dNow > 0 && dNow < 3) {
+        const timing = core.AudioEngine.scheduleAt(dNow);
+        if (timing) trialToneTimings.push({ beatTime: beat.time, intendedDelay: dNow, scheduledAt: timing.scheduledAt, perfNow: timing.perfNow });
+      }
+
+      if (core.MotionDetector.checkMovement()) {
+        const w = document.getElementById("trial-movement-warning");
+        if (w) { w.classList.add("visible"); clearTimeout(w._t); w._t = setTimeout(() => w.classList.remove("visible"), 2000); }
+      }
+    };
+
+    const fCb = (p) => {
+      isFingerPresent = p; updateSensorWarning();
+      if (!p) { trialFingerLossEvents.push({ lostAt: performance.now() }); }
+      else if (trialFingerLossEvents.length > 0 && !trialFingerLossEvents[trialFingerLossEvents.length - 1].restoredAt) {
+        trialFingerLossEvents[trialFingerLossEvents.length - 1].restoredAt = performance.now();
+      }
+    };
+
+    const sqiCb = (sqi) => {
+      currentSqiValue = sqi; updateSensorWarning();
+      const now = Date.now();
+      if (trialLastSqiCheckTime > 0 && sqi < SQI_WARN) { trialSqiBadSeconds += (now - trialLastSqiCheckTime) / 1000; }
+      trialLastSqiCheckTime = now;
+      trialSqiTimeSeries.push({ time: now, sqi: Math.round(sqi * 100000) / 100000 });
+    };
+
+    const ppgCb = () => {
+      if (videoElement && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
+        previewCtx.drawImage(videoElement, 0, 0, 120 * (window.devicePixelRatio || 1), 120 * (window.devicePixelRatio || 1));
+      }
+    };
+
+    if (!trialDetectorRunning) {
+      await core.BeatDetector.start({ video: videoElement, canvas: document.getElementById("sampling-canvas"), onBeatCb: beatCb, onFingerChangeCb: fCb, onSqiUpdateCb: sqiCb, onDicroticRejectCb: (info) => trialDicroticRejections.push(info), onPPGSampleCb: ppgCb });
+      trialDetectorRunning = true;
+    } else {
+      core.BeatDetector.setCallbacks({ onBeatCb: beatCb, onFingerChangeCb: fCb, onSqiUpdateCb: sqiCb, onDicroticRejectCb: (info) => trialDicroticRejections.push(info), onPPGSampleCb: ppgCb });
+    }
+  }
+
+  // ----------------------------------------------------------
+  // END TRIAL
+  // ----------------------------------------------------------
+  function endTrial() {
+    trialRunning = false;
+    if (core) {
+      core.MotionDetector.stop(); stopSensorWatchdog();
+      core.BeatDetector.setCallbacks({ onBeatCb: null, onFingerChangeCb: null, onSqiUpdateCb: null, onDicroticRejectCb: null, onPPGSampleCb: null });
+    }
+
+    const totalBeats = trialCleanBeats + trialFlaggedBeats;
+    const td = {
+      type: "trial", isPractice: currentTrialIndex < 0,
+      initialKnobValue: trialInitialKnob, visualOffset: trialVisualOffset,
+      instantPeriods: [...trialIP], averagePeriods: [...trialAP],
+      knobScales: [...trialKS], currentDelays: [...trialCD], instantErrs: [...trialIE],
+      recordedHR: [...trialRecordedHR], instantBpms: [...trialInstantBpms],
+      toneTimings: [...trialToneTimings], fingerLossEvents: [...trialFingerLossEvents],
+      confidence: -1, bodyPos: -1,
+      ppgDiagnostics: core ? core.BeatDetector.getDiagnostics() : {},
+      ibiFlags: [...trialIbiFlags], sqiTimeSeries: [...trialSqiTimeSeries],
+      dicroticRejections: [...trialDicroticRejections],
+      qualitySummary: {
+        totalBeats, cleanBeats: trialCleanBeats, flaggedBeats: trialFlaggedBeats,
+        flagRate: totalBeats > 0 ? Math.round(trialFlaggedBeats / totalBeats * 10000) / 100 : 0,
+        dicroticRejectsCount: trialDicroticRejections.length,
+        sqiBadSeconds: Math.round(trialSqiBadSeconds * 10) / 10,
+        sqiFinalValue: core ? Math.round(core.BeatDetector.getSqi() * 100000) / 100000 : 0,
+        ibiChangeThreshold: IBI_CHANGE_THRESHOLD, sqiGoodThreshold: SQI_GOOD, sqiWarnThreshold: SQI_WARN
+      }
+    };
+
+    if (core) { td.audioDropLog = core.AudioEngine.getDropLog(); td.audioCtxState = core.AudioEngine.getState(); core.AudioEngine.clearDropLog(); core.AudioEngine.resetSchedulerState(); }
+
+    // Confidence rating (if enabled)
+    if (config.modules?.epat?.confidence_ratings) {
+      show("screen-ema");
+      document.getElementById("ema-progress-fill").style.width = "100%";
+      const container = document.getElementById("ema-single-container");
+      container.innerHTML = `
+        <div class="ema-question">How confident are you that the sound matched your heartbeat?</div>
+        <div class="slider-group">
+          <div class="slider-val-display" id="conf-val">5</div>
+          <input type="range" class="range-slider" id="conf-slider" min="0" max="9" step="1" value="5">
+          <div class="slider-labels"><span>Guessing</span><span>Certain</span></div>
+        </div>
+      `;
+      const sl = document.getElementById("conf-slider");
+      const vd = document.getElementById("conf-val");
+      const btn = document.getElementById("ema-next-btn");
+      btn.textContent = "Submit"; btn.disabled = true;
+      sl.oninput = () => { vd.textContent = sl.value; btn.disabled = false; };
+      btn.onclick = () => {
+        td.confidence = parseInt(sl.value);
+        btn.onclick = null;
+        afterConfidence(td);
+      };
+    } else {
+      afterConfidence(td);
+    }
+  }
+
+  function afterConfidence(td) {
+    // Body map (if enabled, every N trials)
+    if (config.modules?.epat?.body_map && currentTrialIndex >= 0 && (currentTrialIndex + 1) % BODY_MAP_EVERY === 0) {
+      show("screen-bodymap");
+      const parts = document.querySelectorAll(".body-part");
+      const nowhereBtn = document.getElementById("nowhere-btn");
+      const confirmBtn = document.getElementById("confirm-bodymap-btn");
+      let sel = -1; confirmBtn.disabled = true;
+      parts.forEach(p => {
+        p.classList.remove("selected");
+        p.onclick = () => { parts.forEach(pp => pp.classList.remove("selected")); if (nowhereBtn) nowhereBtn.classList.remove("selected"); p.classList.add("selected"); sel = parseInt(p.dataset.value); confirmBtn.disabled = false; };
+      });
+      if (nowhereBtn) { nowhereBtn.classList.remove("selected"); nowhereBtn.onclick = () => { parts.forEach(pp => pp.classList.remove("selected")); nowhereBtn.classList.add("selected"); sel = 8; confirmBtn.disabled = false; }; }
+      confirmBtn.onclick = () => { td.bodyPos = sel; confirmBtn.onclick = null; sessionData.data.push(td); wrapTrial(); };
+    } else {
+      sessionData.data.push(td);
+      wrapTrial();
+    }
+  }
+
+  async function wrapTrial() {
+    currentTrialIndex++;
+    if (currentTrialIndex >= NUM_TRIALS) {
+      if (core) { trialDetectorRunning = false; await core.BeatDetector.stop(); core.WakeLockCtrl.release(); }
+      advancePhase();
+    } else {
+      startTrial();
+    }
+  }
+
+  document.getElementById("confirm-trial-btn").addEventListener('click', () => {
+    if (core) core.AudioEngine.resume();
+    endTrial();
+  });
+
+  return { startBaseline };
+})();
+
+  // ---------------------------------------------------------------
+  // START handler — either fresh start or resume
+  // ---------------------------------------------------------------
+  function doStart(resuming) {
+    if (!resuming) {
+      sessionData.participantId = pidInput.value.trim();
+      sessionData.startedAt = new Date().toISOString();
+      sessionData.device = collectDeviceMetadata();
+    } else {
+      // Adopt the resumed state, but stamp a new device record in case
+      // they switched devices (keep the original too).
+      Object.assign(sessionData, resumeOffer);
+      sessionData.resumedAt = new Date().toISOString();
+      const freshDevice = collectDeviceMetadata();
+      if (sessionData.device && sessionData.device.userAgent !== freshDevice.userAgent) {
+        sessionData.deviceOnResume = freshDevice;
+      }
+    }
+
+    if (window.ePATCore) window.ePATCore.AudioEngine.init();
+
+    // Persist immediately so a crash between start and first advancePhase
+    // still has something to resume from.
+    persistResumeState();
+
+    if (sessionData.type === 'onboarding' && config.onboarding?.enabled) {
+      OnboardingSession.start();
+    } else {
+      runNextPhase();
+    }
+  }
+
+  function persistResumeState() {
+    if (!config.study?.resume_enabled) return;
+    ResumeManager.save(sessionData.participantId, urlDay, urlSession, sessionData);
+  }
+
+  // If we have a resume offer, surface it by repurposing the start button
+  // and adding a "start over" link under it.
+  if (resumeOffer) {
+    startBtn.textContent = 'Resume Session';
+    startBtn.disabled = false;
+    // Add a small "start over" option next to/under the button.
+    const inputGroup = document.getElementById('participant-input-group');
+    const hint = document.createElement('button');
+    hint.textContent = 'Start over';
+    hint.style.cssText = 'margin-top:12px;background:none;border:none;color:var(--fg-muted);font-size:0.85rem;text-decoration:underline;cursor:pointer;';
+    hint.addEventListener('click', () => {
+      ResumeManager.clear(urlPid, urlDay, urlSession);
+      resumeOffer = null;
+      startBtn.textContent = 'Begin Session';
+      hint.remove();
+    });
+    if (startBtn.parentNode) startBtn.parentNode.appendChild(hint);
+  }
+
+  startBtn.addEventListener('click', () => {
+    doStart(!!resumeOffer);
+  });
+
+  // ---------------------------------------------------------------
+  // PHASE DISPATCH — v1.4: token shape determines handler.
+  //   "pre_<wid>" / "post_<wid>"  → EMA.start(token)
+  //   "<moduleId>"                → dispatch via explicit module switch
+  // ---------------------------------------------------------------
+  function runNextPhase() {
+    const phase = sessionData.phases[sessionData.currentPhase];
+    if (!phase) { finalizeSession(); return; }
+
+    if (phase.startsWith('pre_') || phase.startsWith('post_')) {
+      EMA.start(phase);
+      return;
+    }
+
+    switch (phase) {
+      case 'epat':
+        if (config.modules?.epat && window.ePATCore && typeof ePAT !== 'undefined') {
+          ePAT.startBaseline();
+        } else {
+          console.warn('ePAT phase requested but module/core not available; skipping.');
+          advancePhase();
+        }
+        break;
+      // Future modules register here. Example:
+      // case 'stroop':
+      //   if (config.modules?.stroop && typeof Stroop !== 'undefined') Stroop.start();
+      //   else advancePhase();
+      //   break;
+      default:
+        console.warn(`Unknown phase token: ${phase}. Skipping.`);
+        advancePhase();
+    }
+  }
+
+  function advancePhase() {
+    sessionData.currentPhase++;
+    persistResumeState();  // snapshot after each phase completes
+    runNextPhase();
+  }
+
+  function finalizeSession() {
+    sessionData.status = "complete";
+    sessionData.completedAt = new Date().toISOString();
+
+    // Stamp the completion lock BEFORE any UI work so even a partial crash
+    // after this point doesn't let the participant redo the session.
+    if (config.study?.completion_lock) {
+      CompletionLock.stamp(sessionData.participantId, urlDay, urlSession);
+    }
+
+    // Clear the resume state — session is done.
+    ResumeManager.clear(sessionData.participantId, urlDay, urlSession);
+
+    if (isPreview) {
+      document.getElementById('screen-end').querySelector('p').textContent = '✓ Preview complete.';
+      show('screen-end');
+      return;
+    }
+
+    // Beat count vanity (ePAT-specific; harmless when absent)
+    const totalBeats = sessionData.data.reduce((sum, entry) => {
+      if (entry.type === "baseline") return sum + (entry.recordedHR ? entry.recordedHR.length : 0);
+      if (entry.type === "trial")    return sum + (entry.qualitySummary ? entry.qualitySummary.totalBeats : 0);
+      return sum;
+    }, 0);
+
+    if (totalBeats > 0) {
+      const el = document.getElementById("end-beat-count");
+      if (el) {
+        el.textContent = `${totalBeats.toLocaleString()} beats contributed to science.`;
+        el.style.display = "block";
+      }
+    }
+
+    document.getElementById("download-btn").onclick = () => Upload.send(sessionData);
+    show('screen-end');
+  }
+
+  // Expose advancePhase + sessionData to injected modules. They were implicit
+  // globals under the old structure; making them explicit here removes a whole
+  // class of "works in this order but not that order" bugs.
+  window.advancePhase = advancePhase;
+  window.__sessionData = sessionData;
+  window.__persistResumeState = persistResumeState;
+
+})();
+</script>
+</body>
+</html>
