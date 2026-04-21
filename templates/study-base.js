@@ -507,16 +507,53 @@ if (urlPid) {
     const seq = (Array.isArray(w.phase_sequence) && w.phase_sequence.length > 0)
       ? w.phase_sequence
       : legacyTripleToSequence(w.phases);
-
+ 
+    // Collect already-submitted EMA responses for condition evaluation.
+    // At this point sessionData.data may contain ema_response entries from
+    // phases that already ran in this session.
+    function getCollectedResponses() {
+      const merged = {};
+      (sessionData.data || []).forEach(entry => {
+        if (entry.type === 'ema_response' && entry.responses) {
+          Object.assign(merged, entry.responses);
+        }
+        // HR captures are stored as hr_capture entries with a bpm field
+        if (entry.type === 'hr_capture') {
+          merged[entry.question_id] = { value: entry.bpm, respondedAt: entry.capturedAt };
+        }
+      });
+      return merged;
+    }
+ 
     const tokens = [];
+    let emaBlockCounter = { pre: 0, post: 0 };
+ 
     seq.forEach(step => {
       if (step.kind === 'ema') {
         const block = step.block === 'post' ? 'post' : 'pre';
-        tokens.push(`${block}_${w.id}`);
+        // Allow multiple EMA blocks of the same type by appending a suffix
+        // for the 2nd, 3rd, etc. — e.g. post_w1, post2_w1
+        const count = emaBlockCounter[block]++;
+        const prefix = count === 0 ? block : `${block}${count + 1}`;
+        tokens.push(`${prefix}_${w.id}`);
+ 
       } else if (step.kind === 'task' && step.id && enabledModules[step.id]) {
+        // Evaluate optional condition
+        if (step.condition && step.condition.question_id) {
+          const responses = getCollectedResponses();
+          if (!evalCond(step.condition, responses)) {
+            return; // condition false — skip this task
+          }
+        }
         tokens.push(step.id);
+ 
+      } else if (step.kind === 'hr') {
+        // HR capture is its own phase token: 'hr:<store_as>:<duration_sec>'
+        const storeAs  = step.store_as  || 'hr_result';
+        const duration = step.duration_sec || 30;
+        tokens.push(`hr:${storeAs}:${duration}`);
       }
-      // Unknown kinds and disabled modules silently drop — degrade gracefully.
+      // Unknown kinds and disabled modules silently drop.
     });
     return tokens;
   }
@@ -697,6 +734,22 @@ if (urlPid) {
       //   if (config.modules?.stroop && typeof Stroop !== 'undefined') Stroop.start();
       //   else advancePhase();
       //   break;
+
+      default:
+        if (phase.startsWith('hr:')) {
+          const [, storeAs, durStr] = phase.split(':');
+          const durationSec = parseInt(durStr) || 30;
+          if (typeof HRCapture !== 'undefined') {
+            HRCapture.start(storeAs, durationSec);
+          } else {
+            console.warn('HR capture requested but HRCapture module not available; skipping.');
+            advancePhase();
+          }
+          break;
+        }
+        console.warn(`Unknown phase token: ${phase}. Skipping.`);
+        advancePhase();
+
       default:
         console.warn(`Unknown phase token: ${phase}. Skipping.`);
         advancePhase();

@@ -93,6 +93,20 @@ const EMA = (function() {
     return (rec && typeof rec === 'object' && 'value' in rec) ? rec.value : rec;
   }
 
+  function interpolate(text, responses) {
+    // Replace {{question_id}} tokens with the current response value.
+    // e.g. "Your heart rate was {{q_hr_1}} BPM — are you anxious?"
+    // If the question hasn't been answered yet, leaves the token as-is.
+    return text.replace(/\{\{([^}]+)\}\}/g, (match, qid) => {
+      const rec = responses[qid.trim()];
+      if (rec === undefined || rec === null) return match;
+      const val = (rec && typeof rec === 'object' && 'value' in rec) ? rec.value : rec;
+      if (val === null || val === undefined) return match;
+      if (typeof val === 'object') return JSON.stringify(val);
+      return String(Math.round(Number(val) * 10) / 10); // round to 1dp for readability
+    });
+  }
+
   // -----------------------------------------------------------------------
   // Affect grid builder — builds an SVG tap-target and wires pointer events.
   // Uses CSS variables for theming so it stays consistent across dark/light.
@@ -276,6 +290,110 @@ const EMA = (function() {
     wrapper.appendChild(container);
   }
 
+  function buildHeartRateCapture(q, wrapper, checkSubmit) {
+    const core = window.ePATCore;
+    const durationSec = q.duration_sec || 30;
+ 
+    // Start with null so required check blocks Next until capture completes
+    if (valueOf(q.id) === undefined) recordResponse(q.id, null);
+ 
+    const circ = 2 * Math.PI * 85;
+    const uid = q.id.replace(/[^a-z0-9]/gi, '_');
+ 
+    const container = document.createElement('div');
+    container.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:16px;padding:8px 0;';
+    container.innerHTML = `
+      <div class="progress-ring" style="width:160px;height:160px;">
+        <svg viewBox="0 0 180 180">
+          <circle class="track" cx="90" cy="90" r="85"/>
+          <circle class="fill" id="hr-ring-${uid}" cx="90" cy="90" r="85"/>
+        </svg>
+        <div class="baseline-bpm-box">
+          <div class="baseline-bpm-number" id="hr-bpm-${uid}" style="font-size:2.8rem;">--</div>
+          <div class="baseline-bpm-label">BPM</div>
+        </div>
+      </div>
+      <p style="font-size:0.88rem;color:var(--fg-muted);text-align:center;margin:0;">
+        Cover the rear <strong style="color:var(--fg);">camera + flashlight</strong> with your fingertip
+      </p>
+      <div id="hr-status-${uid}" style="font-size:0.82rem;color:var(--fg-muted);text-align:center;min-height:1.2em;"></div>
+    `;
+    wrapper.appendChild(container);
+ 
+    // Disable Next until capture completes
+    const nextBtn = document.getElementById('ema-next-btn');
+    if (nextBtn) nextBtn.disabled = true;
+ 
+    const ringEl   = container.querySelector(`#hr-ring-${uid}`);
+    const bpmEl    = container.querySelector(`#hr-bpm-${uid}`);
+    const statusEl = container.querySelector(`#hr-status-${uid}`);
+ 
+    if (!core) {
+      // Preview mode — simulate
+      if (statusEl) statusEl.textContent = 'Preview: simulating…';
+      let t = 0;
+      const sim = setInterval(() => {
+        t++;
+        const fakeBpm = 65 + Math.round(Math.random() * 10);
+        if (bpmEl) bpmEl.textContent = String(fakeBpm);
+        if (ringEl) ringEl.style.strokeDashoffset = String(circ * (1 - t / durationSec));
+        if (statusEl) statusEl.textContent = `${durationSec - t}s remaining`;
+        if (t >= durationSec) {
+          clearInterval(sim);
+          recordResponse(q.id, fakeBpm);
+          if (statusEl) statusEl.textContent = `Captured: ${fakeBpm} BPM`;
+          checkSubmit();
+        }
+      }, 1000);
+      return;
+    }
+ 
+    const videoEl  = document.getElementById('video-feed');
+    const canvasEl = document.getElementById('sampling-canvas');
+    const bpms = [];
+    const startMs = Date.now();
+    let done = false;
+ 
+    const timer = setInterval(() => {
+      if (done) return;
+      const elapsed   = (Date.now() - startMs) / 1000;
+      const remaining = Math.max(0, durationSec - elapsed);
+      if (ringEl) ringEl.style.strokeDashoffset = String(circ * (1 - Math.min(1, elapsed / durationSec)));
+      if (statusEl) statusEl.textContent = `${Math.ceil(remaining)}s remaining`;
+      if (remaining <= 0) {
+        done = true; clearInterval(timer);
+        core.BeatDetector.setCallbacks({ onBeatCb: null, onFingerChangeCb: null, onSqiUpdateCb: null, onPPGSampleCb: null });
+        core.BeatDetector.stop().then(() => {
+          const avg = bpms.length > 0
+            ? Math.round((bpms.reduce((a,b)=>a+b,0) / bpms.length) * 10) / 10
+            : null;
+          recordResponse(q.id, avg);
+          if (bpmEl && avg) bpmEl.textContent = String(Math.round(avg));
+          if (statusEl) statusEl.textContent = avg ? `Captured: ${Math.round(avg)} BPM` : 'No signal detected';
+          checkSubmit();
+        });
+      }
+    }, 250);
+ 
+    core.BeatDetector.start({
+      video: videoEl, canvas: canvasEl,
+      onBeatCb: (beat) => {
+        bpms.push(beat.averageBPM);
+        if (bpmEl) bpmEl.textContent = String(Math.round(beat.averageBPM));
+      },
+      onFingerChangeCb: (present) => {
+        if (!done && statusEl) statusEl.textContent = present ? 'Detecting…' : 'Place finger on camera and flashlight';
+      },
+      onSqiUpdateCb: () => {},
+      onPPGSampleCb: () => {}
+    }).catch(() => {
+      clearInterval(timer);
+      recordResponse(q.id, null);
+      if (statusEl) statusEl.textContent = 'Camera unavailable';
+      checkSubmit();
+    });
+  }
+
   // Shared checkSubmit reference so affect-grid can call it.
   // Set inside renderCurrentPage before any question builder runs.
   let checkSubmitFn = () => {};
@@ -329,7 +447,7 @@ const EMA = (function() {
 
       const qTitle = document.createElement('div');
       qTitle.className = 'ema-question';
-      qTitle.textContent = q.text || '';
+      qTitle.textContent = interpolate(q.text || '', emaResponses.responses);
       wrapper.appendChild(qTitle);
 
       if (q.type === 'slider') {
@@ -404,6 +522,9 @@ const EMA = (function() {
 
       } else if (q.type === 'affect_grid') {
         buildAffectGrid(q, wrapper);
+
+        } else if (q.type === 'heart_rate') {
+        buildHeartRateCapture(q, wrapper, checkSubmit);
 
       } else {
         // Generic text / numeric input

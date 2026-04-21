@@ -2,45 +2,46 @@
 
 // ---------------------------------------------------------------------------
 // EMA Studio — state.js
-// Schema v1.4.0
+// Schema v1.5.0
 //
-// Changes from v1.3.0:
-//   - SCHEMA_VERSION bumped to 1.4.0
-//   - study.completion_lock (boolean) — if true, the runtime refuses to let a
-//     participant complete the same (pid, day, sessionId) twice. Enforced
-//     client-side via localStorage — see CompletionLock in study-base.js.
-//     Default: true (most EMA designs want this).
-//   - study.resume_enabled (boolean) — if true, the runtime persists partial
-//     session state to localStorage after every phase transition so a crashed
-//     or backgrounded session can resume from the URL. Default: true.
-//   - Windows keep the legacy `phases: {pre, task, post}` triple for
-//     backward compat with existing builder UIs, BUT buildConfig() also emits
-//     a `phase_sequence` array form, and the runtime prefers that when
-//     present. This lets a future Schedule UI edit ordered multi-task
-//     sequences without another schema break.
+// Changes from v1.4.0:
 //
-// PHASE SEQUENCE SPEC (new, forward-looking):
-//   Each entry is one of:
-//     { kind: "ema",  block: "pre"  | "post" }
-//     { kind: "task", id:    "epat" | "stroop" | ... }
-//   Tokens emitted into sessionData.phases at runtime:
-//     kind: ema  → "pre_<wid>" / "post_<wid>"
-//     kind: task → "<moduleId>"
-//   Windows that only specify the legacy triple are auto-expanded by
-//   buildConfig().
+// MULTI-TASK SESSIONS:
+//   Windows now store phase_sequence[] as the primary schema. The old
+//   phases: {pre, task, post} triple is kept for backwards compat but
+//   phasesToSequence() is the sole expansion path.
+//   A phase_sequence step can now be:
+//     { kind: "ema",  block: "pre"|"post" }
+//     { kind: "task", id: "epat"|..., condition: {question_id, operator, value} | null }
+//     { kind: "hr",   duration_sec: 30,  store_as: "q_hr_1" }
+//   Multiple tasks in a single window are fully supported.
+//
+// HEART RATE QUESTION TYPE:
+//   New EMA question type: heart_rate.
+//   Captures PPG for `duration_sec` seconds via ePATCore.BeatDetector.
+//   Stores { bpm, sqi, ibi_series } under the question ID.
+//   Because `bpm` is a number, it participates in conditional logic normally
+//   — evalCond compares against the bpm value directly.
+//   Builder config: { duration_sec: 30, report_as: "bpm" }
+//
+// CONDITIONAL TASKS:
+//   A task step in phase_sequence can carry a condition:
+//     { kind: "task", id: "epat", condition: { question_id: "q_hr_1", operator: "gt", value: 80 } }
+//   expandWindowToTokens() evaluates this against collected ema_response data
+//   before emitting the token. False → step is silently skipped.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = "1.4.0";
+const SCHEMA_VERSION = "1.5.0";
 
 let state = {
   study: {
     name: "Interoception Study",
     institution: "",
-    theme: "oled",              // "oled" | "dark" | "light"
+    theme: "oled",
     accent_color: "#e8716a",
-    output_format: "csv",       // "csv" | "json"
-    completion_lock: true,      // one completed session per (pid, day, windowId)
-    resume_enabled: true,       // persist partial session for crash recovery
+    output_format: "csv",
+    completion_lock: true,
+    resume_enabled: true,
     greetings: { w1: "Good Morning", w2: "Check-In", w3: "Good Evening" }
   },
 
@@ -50,9 +51,6 @@ let state = {
     consent_text: "<h3>1. Purpose</h3>\n<p>This research investigates individual differences in how people perceive internal body signals such as heartbeats, and how this relates to mood and daily experience.</p>\n<h3>2. What You Will Do</h3>\n<p>You will complete brief daily check-ins for the duration of the study. You will also complete a task where you adjust an auditory tone to match your heartbeat using a dial.</p>\n<h3>3. Confidentiality</h3>\n<p>All data are stored under a participant ID number with no identifying information.</p>\n<h3>4. Contact</h3>\n<p>For questions about this study, contact the research team.</p>"
   },
 
-  // ------------------------------------------------------------
-  // MODULE REGISTRY (unchanged from v1.3)
-  // ------------------------------------------------------------
   modules: [
     {
       id: "epat",
@@ -83,9 +81,21 @@ let state = {
       daily_prompts: 3,
       days_of_week: [1,2,3,4,5],
       windows: [
-        { id: "w1", label: "Morning",   start: "08:00", end: "10:00", phases: { pre: true, task: null, post: false } },
-        { id: "w2", label: "Afternoon", start: "13:00", end: "15:00", phases: { pre: true, task: null, post: false } },
-        { id: "w3", label: "Evening",   start: "19:00", end: "21:00", phases: { pre: true, task: null, post: false } }
+        {
+          id: "w1", label: "Morning",   start: "08:00", end: "10:00",
+          phases: { pre: true, task: null, post: false },
+          phase_sequence: [{ kind: "ema", block: "pre" }]
+        },
+        {
+          id: "w2", label: "Afternoon", start: "13:00", end: "15:00",
+          phases: { pre: true, task: null, post: false },
+          phase_sequence: [{ kind: "ema", block: "pre" }]
+        },
+        {
+          id: "w3", label: "Evening",   start: "19:00", end: "21:00",
+          phases: { pre: true, task: null, post: false },
+          phase_sequence: [{ kind: "ema", block: "pre" }]
+        }
       ],
       timing: { expiry_minutes: 60, grace_minutes: 10 }
     }
@@ -93,7 +103,7 @@ let state = {
 };
 
 // ---------------------------------------------------------------------------
-// Ephemeral UI state — not persisted
+// Ephemeral UI state
 // ---------------------------------------------------------------------------
 let previewSession = "onboarding";
 let previewDebounceTimer = null;
@@ -121,39 +131,23 @@ function escH(str) {
 }
 
 // ---------------------------------------------------------------------------
-// phasesToSequence(w) — expand the legacy {pre, task, post} triple into the
-// new phase_sequence array. This is the single source of truth for the
-// expansion rule; the Schedule tab and the runtime both go through here
-// (transitively, since buildConfig emits the expanded form).
+// phasesToSequence(w) — canonical expansion from legacy triple or explicit array.
+// phase_sequence on the window is always used verbatim if present and non-empty.
 // ---------------------------------------------------------------------------
 function phasesToSequence(w) {
-  // If a window already has an explicit phase_sequence, use it verbatim.
   if (Array.isArray(w.phase_sequence) && w.phase_sequence.length > 0) {
     return w.phase_sequence.map(p => ({ ...p }));
   }
   const ph = w.phases || { pre: true, task: null, post: false };
   const seq = [];
-  if (ph.pre)              seq.push({ kind: "ema",  block: "pre"  });
-  if (ph.task)             seq.push({ kind: "task", id:    ph.task });
-  if (ph.post && ph.task)  seq.push({ kind: "ema",  block: "post" });
+  if (ph.pre)             seq.push({ kind: "ema",  block: "pre" });
+  if (ph.task)            seq.push({ kind: "task", id: ph.task, condition: null });
+  if (ph.post && ph.task) seq.push({ kind: "ema",  block: "post" });
   return seq;
 }
 
 // ---------------------------------------------------------------------------
-// buildConfig — serialises state into the config.json schema consumed by
-// study-base.js at runtime.
-//
-// v1.4 schema contract:
-//   - schema_version           — "1.4.0"
-//   - study                    — branding, theme, greetings, output_format,
-//                                completion_lock, resume_enabled
-//   - onboarding               — consent + schedule prefs
-//   - ema.questions            — array with block + windows filters
-//   - ema.scheduling.windows   — each window has BOTH:
-//                                  phases: {pre, task, post}  (legacy triple)
-//                                  phase_sequence: [...]      (expanded array)
-//                                Runtime prefers phase_sequence if non-empty.
-//   - modules                  — object keyed by module id → settings
+// buildConfig — serialises state into config.json consumed by study-base.js
 // ---------------------------------------------------------------------------
 function buildConfig() {
   const cfg = {
@@ -164,22 +158,25 @@ function buildConfig() {
     modules:    {}
   };
 
-  // Belt-and-suspenders defaults for study flags — if a pre-v1.4 project was
-  // imported, these fields may be missing and we want sane behavior.
   if (cfg.study.completion_lock === undefined) cfg.study.completion_lock = true;
   if (cfg.study.resume_enabled  === undefined) cfg.study.resume_enabled  = true;
 
-  // Expand phase_sequence for every window — runtime consumes this form.
+  // Always emit phase_sequence — runtime prefers this over legacy triple
   (cfg.ema?.scheduling?.windows || []).forEach(w => {
     w.phase_sequence = phasesToSequence(w);
   });
 
-  // Emit each enabled module's settings under its id key
   state.modules.forEach(mod => {
     if (mod.enabled) {
       cfg.modules[mod.id] = JSON.parse(JSON.stringify(mod.settings));
     }
   });
+
+  // Emit hr_capture settings if any window uses an hr step
+  const hasHr = (cfg.ema?.scheduling?.windows || []).some(w =>
+    (w.phase_sequence || []).some(s => s.kind === 'hr')
+  );
+  if (hasHr) cfg.modules.hr_capture = { enabled: true };
 
   return cfg;
 }
