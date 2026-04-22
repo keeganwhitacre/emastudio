@@ -19,6 +19,12 @@
   --radius: 6px; --radius-lg: 10px;
   --shadow: 0 8px 24px rgba(0,0,0,0.4);
   --transition: 0.15s ease;
+  --focus-ring: 0 0 0 3px var(--accent-dim);
+  --card-gradient: linear-gradient(
+  180deg, 
+  rgba(255, 255, 255, 0.03) 0%, 
+  rgba(255, 255, 255, 0) 100%
+);
 }
 
 /* Light Mode Overrides */
@@ -34,6 +40,27 @@
   --fg-3: #8c959f;
   --shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
 }
+
+::selection {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+
+/* Apply to a card component */
+.card {
+  background: var(--bg-1);
+  background-image: var(--card-gradient);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+button:focus-visible, input:focus {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent);
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; width: 100%; font-family: var(--font); background: var(--bg); color: var(--fg); overflow: hidden; font-size: 14px; line-height: 1.5; }
 
