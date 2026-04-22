@@ -170,10 +170,18 @@
       <div class="field-group">
         <label class="field-label">Response Format</label>
         <div class="seg-ctrl" id="format-ctrl">
-      <button class="seg-btn" data-fmt="json">JSON</button>
-      <button class="seg-btn active" data-fmt="csv">CSV</button>
-    </div>
-    <div class="field-hint" id="format-hint">Each submission downloads a .csv with one row per question. Easy to concatenate across participants. Task signal data (e.g. ePAT) downloads alongside as a separate .json.</div>
+          <button class="seg-btn" data-fmt="json">JSON</button>
+          <button class="seg-btn active" data-fmt="csv">CSV</button>
+        </div>
+        <div class="field-hint" id="format-hint">Each submission downloads a .csv with one row per question. Easy to concatenate across participants. Task signal data (e.g. ePAT) downloads alongside as a separate .json.</div>
+      </div>
+      
+      <div class="field-group" style="margin-top: 16px; padding: 12px; background: var(--bg-2); border: 1px dashed var(--border-hi); border-radius: var(--radius);">
+        <label class="field-label" style="display: flex; align-items: center; gap: 6px;">
+          Webhook URL <span class="badge badge-neutral">Optional</span>
+        </label>
+        <input type="text" id="study-webhook" placeholder="https://script.google.com/macros/s/...">
+        <div class="field-hint" style="margin-top: 4px;">Paste a Google Apps Script Web App URL here to silently upload data. Leave blank to require participants to manually download their data at the end of the session.</div>
       </div>
     </div>
 

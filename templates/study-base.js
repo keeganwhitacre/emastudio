@@ -786,13 +786,9 @@ if (urlPid) {
     sessionData.status = "complete";
     sessionData.completedAt = new Date().toISOString();
 
-    // Stamp the completion lock BEFORE any UI work so even a partial crash
-    // after this point doesn't let the participant redo the session.
     if (config.study?.completion_lock) {
       CompletionLock.stamp(sessionData.participantId, urlDay, urlSession);
     }
-
-    // Clear the resume state — session is done.
     ResumeManager.clear(sessionData.participantId, urlDay, urlSession);
 
     if (isPreview) {
@@ -801,23 +797,60 @@ if (urlPid) {
       return;
     }
 
-    // Beat count vanity (ePAT-specific; harmless when absent)
     const totalBeats = sessionData.data.reduce((sum, entry) => {
       if (entry.type === "baseline") return sum + (entry.recordedHR ? entry.recordedHR.length : 0);
       if (entry.type === "trial")    return sum + (entry.qualitySummary ? entry.qualitySummary.totalBeats : 0);
       return sum;
     }, 0);
 
-    if (totalBeats > 0) {
-      const el = document.getElementById("end-beat-count");
-      if (el) {
-        el.textContent = `${totalBeats.toLocaleString()} beats contributed to science.`;
-        el.style.display = "block";
-      }
+    const statusText = document.getElementById("end-beat-count");
+    if (totalBeats > 0 && statusText) {
+      statusText.textContent = `${totalBeats.toLocaleString()} beats contributed to science.`;
+      statusText.style.display = "block";
     }
 
-    document.getElementById("download-btn").onclick = () => Upload.send(sessionData);
+    const downloadBtn = document.getElementById("download-btn");
+    downloadBtn.onclick = () => Upload.send(sessionData);
     show('screen-end');
+
+    // --- NEW WEBHOOK LOGIC ---
+    if (config.study.webhook_url && config.study.webhook_url.trim() !== "") {
+      
+      downloadBtn.style.display = 'none'; // Hide manual download button
+      
+      if (!statusText) return;
+      statusText.textContent = "Uploading data securely...";
+      statusText.style.display = "block";
+      statusText.style.color = "var(--fg-muted)";
+
+      // Prepare payload
+      const payload = {
+        participant_id: sessionData.participantId,
+        day: sessionData.day,
+        window_id: urlSession,
+        session_data: sessionData 
+      };
+
+      fetch(config.study.webhook_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Bypasses CORS pre-flight
+        body: JSON.stringify(payload)
+      })
+      .then(response => {
+        if(response.ok) {
+          statusText.style.color = "var(--accent-green)";
+          statusText.textContent = "✓ Data uploaded successfully. You can close this page.";
+        } else {
+          throw new Error("Upload failed");
+        }
+      })
+      .catch(error => {
+        // Fallback: Network error. Show the manual download button so data isn't lost.
+        statusText.style.color = "var(--accent-red)";
+        statusText.textContent = "Upload failed (No internet?). Please save a local copy.";
+        downloadBtn.style.display = 'block'; 
+      });
+    }
   }
 
   // Expose advancePhase + sessionData to injected modules. They were implicit

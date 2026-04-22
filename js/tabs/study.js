@@ -46,6 +46,7 @@ function bindStudyTab() {
   };
   bind('study-name',  v => state.study.name = v);
   bind('institution', v => state.study.institution = v);
+  bind('study-webhook', v => state.study.webhook_url = v);
 
   const themeEl = document.getElementById('study-theme');
   if (themeEl) {

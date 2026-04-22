@@ -106,17 +106,23 @@ const EMA = (function() {
     return (rec && typeof rec === 'object' && 'value' in rec) ? rec.value : rec;
   }
 
-  function interpolate(text, responses) {
+function interpolate(text, responses) {
     // Replace {{question_id}} tokens with the current response value.
-    // e.g. "Your heart rate was {{q_hr_1}} BPM — are you anxious?"
-    // If the question hasn't been answered yet, leaves the token as-is.
     return text.replace(/\{\{([^}]+)\}\}/g, (match, qid) => {
       const rec = responses[qid.trim()];
       if (rec === undefined || rec === null) return match;
+      
       const val = (rec && typeof rec === 'object' && 'value' in rec) ? rec.value : rec;
       if (val === null || val === undefined) return match;
       if (typeof val === 'object') return JSON.stringify(val);
-      return String(Math.round(Number(val) * 10) / 10); // round to 1dp for readability
+      
+      // If it's a number, round it to 1 decimal place so it looks clean (e.g., 75.4 BPM)
+      if (!isNaN(val) && val !== "") {
+        return String(Math.round(Number(val) * 10) / 10);
+      }
+      
+      // If it's regular text (like "Taking a break"), just return the text!
+      return String(val); 
     });
   }
 

@@ -215,6 +215,7 @@ const StorageManager = {
         // 1. Study Tab
         if (el('study-name'))    el('study-name').value = state.study.name || '';
         if (el('institution'))   el('institution').value = state.study.institution || '';
+        if (el('study-webhook')) el('study-webhook').value = state.study.webhook_url || '';
         if (el('accent-color')) {
             el('accent-color').value = state.study.accent_color || '#e8716a';
             const sw = el('color-preview-swatch');

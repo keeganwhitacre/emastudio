@@ -42,6 +42,7 @@ let state = {
     output_format: "csv",
     completion_lock: true,
     resume_enabled: true,
+    webhook_url: "",
     greetings: { w1: "Good Morning", w2: "Check-In", w3: "Good Evening" }
   },
 
