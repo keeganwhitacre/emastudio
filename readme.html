@@ -12,6 +12,33 @@
   document.documentElement.setAttribute('data-theme', savedTheme);
 </script>
 <style>
+
+/* --- Mobile Docs (Readme) --- */
+@media (max-width: 850px) {
+  .mobile-menu-btn { display: flex !important; }
+
+  .docs-sidebar {
+    position: fixed;
+    top: 52px; bottom: 0; left: 0;
+    width: 280px;
+    z-index: 100;
+    transform: translateX(-100%); /* Hide off-screen */
+    transition: transform 0.3s ease;
+    box-shadow: 10px 0 30px rgba(0,0,0,0.3);
+  }
+
+  /* Show sidebar when active */
+  #docs-app.show-sidebar .docs-sidebar { transform: translateX(0); }
+
+  .docs-main {
+    padding: 30px 20px 60px; /* Reduce padding for smaller screens */
+  }
+
+  .docs-hero svg { height: auto; } /* Ensure diagram scales */
+  .docs-prose h1 { font-size: 26px; }
+}
+
+
   /* ── Documentation Layout ───────────────────────────────── */
   #docs-app {
     display: flex;
@@ -460,6 +487,10 @@
     </div>
 
     <div class="topbar-actions">
+        <!-- mobile -->
+        <button class="btn-ghost mobile-menu-btn" id="menu-toggle" style="display:none; margin-right: 8px;">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
       <!-- Theme Toggle -->
       <button class="btn-ghost" id="theme-toggle" title="Toggle Light/Dark Mode">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
@@ -1502,6 +1533,23 @@ https://github.com/keeganwhitacre/emaforge</code></pre>
       }
     });
   });
+// Toggle mobile sidebar
+const menuToggle = document.getElementById('menu-toggle');
+const docsApp = document.getElementById('docs-app');
+
+if (menuToggle) {
+  menuToggle.addEventListener('click', () => {
+    docsApp.classList.toggle('show-sidebar');
+  });
+}
+
+// Auto-close sidebar when clicking a link on mobile
+document.querySelectorAll('.docs-nav-link').forEach(link => {
+  link.addEventListener('click', () => {
+    docsApp.classList.remove('show-sidebar');
+  });
+});
+
 </script>
 </body>
 </html>

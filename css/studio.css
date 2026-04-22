@@ -217,4 +217,48 @@ textarea { resize: vertical; min-height: 60px; }
 .badge-muted { background: var(--bg-3); color: var(--fg-3); }
 .badge-blue { background: rgba(56,139,253,0.15); color: var(--blue); }
 
+/* --- Mobile Blocker --- */
+#mobile-blocker {
+  display: none; /* Hidden by default on desktop */
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  background: var(--bg);
+  z-index: 99999;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+}
+
+#mobile-blocker .blocker-content {
+  background: var(--bg-elevated);
+  padding: 40px 30px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  max-width: 400px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+#mobile-blocker h2 {
+  margin-bottom: 10px;
+  color: var(--fg);
+}
+
+#mobile-blocker p {
+  color: var(--fg-muted);
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+/* Trigger the blocker on screens smaller than a typical tablet landscape */
+@media (max-width: 850px) {
+  #mobile-blocker {
+    display: flex;
+  }
+  /* Optionally hide the main app content so it doesn't try to render behind the blocker */
+  .app-container {
+    display: none !important; 
+  }
+}
+
 @media (max-width: 900px) { #app { grid-template-columns: 1fr; grid-template-rows: 52px 1fr 0; } #preview-panel { display: none; } }

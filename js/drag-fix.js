@@ -13,10 +13,28 @@ function initializeDragAndDrop() {
     // This part MUST run on every DOM mutation to catch new items
     const items = list.querySelectorAll('.q-card');
     items.forEach(item => {
-        if (item.getAttribute('draggable') !== 'true') {
-            item.setAttribute('draggable', 'true');
-            const handle = item.querySelector('.q-drag-handle');
-            if (handle) handle.style.cursor = 'grab';
+        // Fix: Make sure cards are NOT draggable by default so text selection works
+        if (!item.hasAttribute('draggable') || item.getAttribute('draggable') === 'true') {
+            item.setAttribute('draggable', 'false');
+        }
+        
+        const handle = item.querySelector('.q-drag-handle');
+        if (handle && !handle.dataset.dragWired) {
+            handle.dataset.dragWired = 'true';
+            handle.style.cursor = 'grab';
+            
+            // Only make the parent card draggable when clicking the handle
+            handle.addEventListener('mousedown', () => {
+                item.setAttribute('draggable', 'true');
+            });
+            
+            // Revert back to non-draggable when letting go or moving off the handle
+            handle.addEventListener('mouseup', () => {
+                item.setAttribute('draggable', 'false');
+            });
+            handle.addEventListener('mouseleave', () => {
+                item.setAttribute('draggable', 'false');
+            });
         }
     });
 
@@ -27,13 +45,16 @@ function initializeDragAndDrop() {
     // 2. Handle Drag Start
     list.addEventListener('dragstart', (e) => {
         const target = e.target.closest('.q-card');
-        if (target) {
+        // Extra safety check: only proceed if the card was explicitly made draggable via the handle
+        if (target && target.getAttribute('draggable') === 'true') {
             draggedItem = target;
             e.dataTransfer.effectAllowed = 'move';
             // Delay visual feedback so the browser captures a solid drag ghost image
             requestAnimationFrame(() => {
                 if (target) target.style.opacity = '0.5';
             });
+        } else {
+            e.preventDefault(); // Stop accidental drags on text selection
         }
     });
 
@@ -57,10 +78,9 @@ function initializeDragAndDrop() {
         e.preventDefault();
         if (draggedItem) {
             draggedItem.style.opacity = '1';
+            draggedItem.setAttribute('draggable', 'false'); // Reset here
             updateStateFromDOMOrder(list);
         }
-        // CRITICAL: Clear draggedItem here too. If the DOM is wiped by renderQuestions, 
-        // the dragend event often won't fire, leaving a ghost node in memory.
         draggedItem = null; 
     });
 
@@ -68,10 +88,12 @@ function initializeDragAndDrop() {
     list.addEventListener('dragend', (e) => {
         if (draggedItem) {
             draggedItem.style.opacity = '1';
+            draggedItem.setAttribute('draggable', 'false'); // Reset here
         }
         const target = e.target.closest('.q-card');
         if (target) {
             target.style.opacity = '1';
+            target.setAttribute('draggable', 'false'); // Reset here
         }
         draggedItem = null;
     });

@@ -12,6 +12,25 @@
 <title>EMA Forge</title>
 <link rel="stylesheet" href="css/studio.css">
 <style>
+  /* --- Mobile Landing Page (Index) --- */
+@media (max-width: 850px) {
+  #hero {
+    padding: 60px 24px 40px;
+    text-align: center;
+  }
+  .hero-eyebrow { justify-content: center; }
+  .hero-title { font-size: 32px; } /* Scale down title */
+  .hero-sub { margin: 0 auto; font-size: 14px; }
+
+  #cards {
+    grid-template-columns: 1fr; /* Stack cards vertically */
+    padding: 0 24px 60px;
+    gap: 12px;
+  }
+  
+  /* Hide minor topbar text to save space */
+  .home-topbar-right { display: none; }
+}
   /* ── Homepage-specific overrides ───────────────────────── */
   /* Body scrolls on this page; builder.html locks overflow  */
   body { overflow: auto; }
