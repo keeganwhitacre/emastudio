@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Documentation — EMA Forge</title>
-<link rel="icon" type="image/png" href="favicon.png">
 <link rel="stylesheet" href="css/studio.css">
 <script>
   // Apply theme immediately to prevent flashing
@@ -13,33 +12,6 @@
   document.documentElement.setAttribute('data-theme', savedTheme);
 </script>
 <style>
-
-/* --- Mobile Docs (Readme) --- */
-@media (max-width: 850px) {
-  .mobile-menu-btn { display: flex !important; }
-
-  .docs-sidebar {
-    position: fixed;
-    top: 52px; bottom: 0; left: 0;
-    width: 280px;
-    z-index: 100;
-    transform: translateX(-100%); /* Hide off-screen */
-    transition: transform 0.3s ease;
-    box-shadow: 10px 0 30px rgba(0,0,0,0.3);
-  }
-
-  /* Show sidebar when active */
-  #docs-app.show-sidebar .docs-sidebar { transform: translateX(0); }
-
-  .docs-main {
-    padding: 30px 20px 60px; /* Reduce padding for smaller screens */
-  }
-
-  .docs-hero svg { height: auto; } /* Ensure diagram scales */
-  .docs-prose h1 { font-size: 26px; }
-}
-
-
   /* ── Documentation Layout ───────────────────────────────── */
   #docs-app {
     display: flex;
@@ -466,6 +438,215 @@
   .docs-prose h2[id], .docs-prose h3[id] {
     scroll-margin-top: 24px;
   }
+
+  /* ──────────────────────────────────────────────────────────
+     Mobile hamburger + sidebar drawer
+     These controls are hidden by default; the media query below
+     makes them visible under 900px.
+     ────────────────────────────────────────────────────────── */
+  .docs-hamburger {
+    display: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--fg);
+    width: 34px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .docs-hamburger svg { width: 18px; height: 18px; }
+
+  .docs-sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 49;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .docs-sidebar-overlay.open {
+    display: block;
+    opacity: 1;
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     MOBILE BREAKPOINT (< 900px)
+     ────────────────────────────────────────────────────────── */
+  @media (max-width: 900px) {
+
+    /* Show hamburger, hide heavy topbar actions */
+    .docs-hamburger { display: inline-flex; }
+
+    /* Topbar: tighten, keep only brand + hamburger + theme */
+    #topbar {
+      padding: 0 12px !important;
+      gap: 10px !important;
+    }
+    .topbar-brand { font-size: 12px !important; }
+    .topbar-actions-sep { display: none !important; }
+    .topbar-actions a.btn-ghost { display: none !important; }
+
+    /* Sidebar becomes a slide-in drawer */
+    .docs-sidebar {
+      position: fixed;
+      top: 52px;
+      bottom: 0;
+      left: 0;
+      width: 78vw;
+      max-width: 320px;
+      z-index: 50;
+      transform: translateX(-100%);
+      transition: transform 0.22s ease;
+      box-shadow: 6px 0 24px rgba(0, 0, 0, 0.35);
+      padding: 18px 0;
+    }
+    .docs-sidebar.open {
+      transform: translateX(0);
+    }
+    .docs-nav-link { padding: 10px 20px; font-size: 14px; }
+    .docs-nav-title { padding: 0 20px; }
+
+    /* Main content goes full-width with mobile padding */
+    .docs-main {
+      padding: 20px 18px 80px;
+    }
+
+    .docs-hero {
+      margin: 0 auto 28px auto;
+    }
+    .docs-hero svg {
+      border-radius: var(--radius);
+    }
+
+    /* Tighter prose typography for small screens */
+    .docs-prose {
+      max-width: 100%;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .docs-prose h1 {
+      font-size: 24px;
+      margin: 0 0 12px 0;
+    }
+    .docs-prose h2 {
+      font-size: 18px;
+      margin: 36px 0 12px 0;
+    }
+    .docs-prose h3 {
+      font-size: 15px;
+      margin: 24px 0 10px 0;
+    }
+    .docs-prose p { margin: 0 0 14px 0; }
+    .docs-prose ul, .docs-prose ol {
+      padding-left: 20px;
+      margin: 0 0 16px 0;
+    }
+    .docs-prose li { margin-bottom: 6px; }
+
+    /* Code: wrap long lines rather than causing horizontal page scroll */
+    .docs-prose pre {
+      padding: 12px;
+      font-size: 12px;
+      border-radius: var(--radius);
+    }
+    .docs-prose pre code {
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .docs-prose code {
+      font-size: 11.5px;
+      word-break: break-word;
+    }
+
+    /* Tables: horizontal scroll instead of breaking layout */
+    .docs-prose table {
+      display: block;
+      overflow-x: auto;
+      white-space: nowrap;
+      font-size: 12px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .docs-prose th, .docs-prose td {
+      padding: 8px 10px;
+      white-space: normal;
+    }
+
+    /* Callouts: tighter padding, smaller icon */
+    .docs-callout {
+      padding: 12px 14px;
+      gap: 10px;
+      margin: 18px 0;
+    }
+    .docs-callout svg { width: 16px; height: 16px; }
+    .docs-callout-content p { font-size: 13px; }
+
+    /* Collapsible details: tighter summary */
+    .docs-prose details {
+      margin: 16px 0;
+    }
+    .docs-prose details summary {
+      padding: 12px 14px;
+      font-size: 13px;
+    }
+    .docs-prose details .details-body {
+      padding: 0 14px 14px 14px;
+      font-size: 13px;
+    }
+
+    /* File tree: shrink + allow scroll */
+    .file-tree {
+      font-size: 11px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    /* Feature grid -> single column */
+    .feature-grid {
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin: 16px 0;
+    }
+    .feature-item { padding: 12px 14px; }
+
+    /* Credit card */
+    .credit-card {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px;
+      margin-top: 32px;
+    }
+
+    /* Hero text inside SVG doesn't respond to CSS, but we can cap the SVG
+       height so it doesn't dominate the viewport on small phones */
+    .docs-hero svg { max-height: 220px; }
+
+    /* Status pills wrap better */
+    .status-pill { font-size: 10px; padding: 2px 8px; }
+
+    /* Blockquotes */
+    .docs-prose blockquote {
+      padding: 12px 14px;
+      margin: 18px 0;
+    }
+    .docs-prose blockquote p { font-size: 13px; }
+  }
+
+  /* Extra-small phones (iPhone SE-class, < 400px) */
+  @media (max-width: 400px) {
+    .docs-main { padding: 16px 14px 60px; }
+    .docs-prose h1 { font-size: 22px; }
+    .docs-prose h2 { font-size: 17px; }
+    .topbar-brand { font-size: 11px !important; }
+  }
 </style>
 </head>
 <body>
@@ -477,6 +658,11 @@
     <a href="index.html" class="topbar-back" title="Back to home">
       <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z"/></svg>
     </a>
+
+    <button class="docs-hamburger" id="docs-hamburger" aria-label="Toggle navigation" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+
     <div class="topbar-brand">
       <div class="topbar-logo">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -488,10 +674,6 @@
     </div>
 
     <div class="topbar-actions">
-        <!-- mobile -->
-        <button class="btn-ghost mobile-menu-btn" id="menu-toggle" style="display:none; margin-right: 8px;">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-        </button>
       <!-- Theme Toggle -->
       <button class="btn-ghost" id="theme-toggle" title="Toggle Light/Dark Mode">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
@@ -501,9 +683,11 @@
     </div>
   </header>
 
+  <div class="docs-sidebar-overlay" id="docs-sidebar-overlay"></div>
+
   <div class="docs-container">
     <!-- ========== SIDEBAR ========== -->
-    <aside class="docs-sidebar">
+    <aside class="docs-sidebar" id="docs-sidebar">
       <div class="docs-nav-group">
         <div class="docs-nav-title">Introduction</div>
         <a href="#overview" class="docs-nav-link active">Overview &amp; Architecture</a>
@@ -539,7 +723,7 @@
       </div>
       <div class="docs-nav-group">
         <div class="docs-nav-title">Data</div>
-        <a href="#data-files" class="docs-nav-link">What Participants Save</a>
+        <a href="#data-files" class="docs-nav-link">Session End &amp; Return</a>
         <a href="#csv-schema" class="docs-nav-link">CSV Schema</a>
         <a href="#json-schema" class="docs-nav-link">JSON Schema</a>
         <a href="#r-analysis" class="docs-nav-link">Analysis in R</a>
@@ -558,9 +742,13 @@
         <a href="#limitations" class="docs-nav-link">Known Limitations</a>
       </div>
       <div class="docs-nav-group">
+        <div class="docs-nav-title">Integrations</div>
+        <a href="#webhook-upload" class="docs-nav-link">Webhook Auto-upload</a>
+        <a href="#twilio-integration" class="docs-nav-link">Twilio (WIP)</a>
+      </div>
+      <div class="docs-nav-group">
         <div class="docs-nav-title">Roadmap</div>
         <a href="#roadmap" class="docs-nav-link">What's Coming</a>
-        <a href="#twilio-webhooks" class="docs-nav-link">Twilio &amp; Webhooks</a>
       </div>
       <div class="docs-nav-group">
         <div class="docs-nav-title">For Developers</div>
@@ -702,7 +890,7 @@
             <tr><td>ePAT task (heartbeat perception)</td><td><span class="status-pill beta">BETA</span></td><td>Shares PPG core with HR capture.</td></tr>
             <tr><td>Response latency in Dashboard</td><td><span class="status-pill wip">WIP</span></td><td>Needs external prompt-delivery timestamps — see <a href="#notifications">Sending Prompts</a>.</td></tr>
             <tr><td>Twilio SMS helpers</td><td><span class="status-pill wip">WIP</span></td><td>Planned; see <a href="#twilio-webhooks">Roadmap</a>.</td></tr>
-            <tr><td>Webhook auto-upload on session complete</td><td><span class="status-pill wip">WIP</span></td><td>Planned; POST to REDCap / S3 / custom endpoint.</td></tr>
+            <tr><td>Webhook auto-upload on session complete</td><td><span class="status-pill stable">STABLE</span></td><td>Google Apps Script tested end-to-end; see <a href="#webhook-upload">Auto-upload with Webhooks</a>.</td></tr>
             <tr><td>Stroop / IAT / additional task modules</td><td><span class="status-pill planned">PLANNED</span></td><td>The task system is built to be extended; these are next in line.</td></tr>
           </tbody>
         </table>
@@ -771,6 +959,7 @@
           <li><strong>Study name &amp; institution</strong> — appears in participant app title and CSV metadata.</li>
           <li><strong>Theme &amp; accent color</strong> — OLED (pure black, recommended for battery), dark, or light. Accent color inherits into the participant app.</li>
           <li><strong>Response format</strong> — CSV (one row per answered question) or JSON (full structured payload). Both are downloaded; JSON is always included when a session contains high-density signal data (PPG/ePAT).</li>
+          <li><strong>Webhook URL</strong> (optional) — if set, session data is auto-uploaded to this URL instead of being manually downloaded by the participant. See <a href="#webhook-upload">Auto-upload with Webhooks</a> for setup.</li>
           <li><strong>Greetings</strong> — per-window header text ("Good Morning", "Check-In", etc.).</li>
           <li><strong>Completion lock &amp; crash recovery</strong> — see <a href="#completion-lock">Runtime Behavior</a>.</li>
         </ul>
@@ -1023,13 +1212,19 @@ git push -u origin main
         <!-- DATA                                                        -->
         <!-- ========================================================= -->
 
-        <h2 id="data-files">What Participants Save</h2>
-        <p>Each completed session produces one or two files:</p>
+        <h2 id="data-files">What Happens at Session End</h2>
+        <p>When the last phase completes, one of two things happens depending on whether you've configured a webhook (Study tab → Webhook URL):</p>
+
+        <h3>Manual return (default)</h3>
+        <p>The participant sees a "Save Local Copy" button. Tapping it downloads one or two files to their device:</p>
         <ul>
           <li><strong><code>ema_data_[ID]_[DAY]_[SESSION].csv</code></strong> — long-format, one row per question answered. Default output when the session contains only standard EMA responses.</li>
           <li><strong><code>ema_data_[ID]_[DAY]_[SESSION].json</code></strong> — full structured payload, included automatically whenever the session contains high-density signal data (PPG samples, ePAT trial-level data). Written alongside the CSV, not instead of it.</li>
         </ul>
-        <p>Participants return these files via whatever channel your IRB approved. The Dashboard expects a folder of JSON files for analysis; a CSV-only workflow is also viable for simpler studies.</p>
+        <p>The participant returns these files via whatever channel your IRB approved (secure email, REDCap file upload, institutional SFTP). The Dashboard expects a folder of JSON files for analysis; a CSV-only workflow is also viable for simpler studies.</p>
+
+        <h3>Webhook return (opt-in)</h3>
+        <p>If a Webhook URL is set, the same data POSTs silently to your endpoint and the participant sees "✓ Data uploaded successfully" instead of a download button. Setup, payload shape, and concrete Google Sheets / Microsoft recipes are in <a href="#webhook-upload">Auto-upload with Webhooks</a>. If the POST fails (offline participant, endpoint down), the "Save Local Copy" button automatically reappears — data is never lost silently.</p>
 
         <h2 id="csv-schema">CSV Schema (Dashboard export)</h2>
         <p>When you use the <strong>Export Master CSV</strong> button in the Dashboard, you get one row per <code>(session, question)</code> pair in long format. The columns:</p>
@@ -1253,18 +1448,24 @@ affect &lt;- df |&gt;
         <h2 id="privacy-model">Privacy Model</h2>
         <p>Written plainly, because IRBs will ask you to restate this in your protocol:</p>
         <ol>
-          <li><strong>Response data never transits a central server.</strong> It is generated, stored, and downloaded entirely on the participant's device. You receive it via whatever channel the participant uses to return files.</li>
+          <li><strong>Response data transmission is opt-in.</strong> By default, data is generated, stored, and downloaded entirely on the participant's device, and you receive it via whatever channel the participant uses to return files. If the researcher configures a webhook (Study tab → Webhook URL), the session JSON is POSTed to that specific endpoint at session end instead. No transmission happens to any endpoint other than the one you configure. The webhook field is off by default.</li>
           <li><strong>The static host sees page-load requests.</strong> Your GitHub Pages / Netlify / institutional host will receive HTTP requests when the participant opens a link. These requests include timestamp, IP, User-Agent, and the full URL (<em>including</em> <code>?id=</code>). If participant ID alone is identifiable, choose an unlinkable ID (short opaque strings, not names or MRNs).</li>
-          <li><strong>No third-party analytics, no CDN fetches, no font-provider calls.</strong> The exported study has zero outbound network calls at runtime (after initial page load). You can verify this in Chrome DevTools → Network.</li>
+          <li><strong>No third-party analytics, no CDN fetches, no font-provider calls.</strong> The exported study has zero outbound network calls at runtime other than (a) the initial page load from your host, and (b) the single webhook POST at session end if configured. You can verify this in Chrome DevTools → Network.</li>
           <li><strong>Camera / microphone access</strong> (HR, ePAT) is handled entirely through the browser's <code>getUserMedia</code> permission prompt. The media stream never leaves the device; only the derived signal (BPM, IBIs, phase offsets) is stored.</li>
           <li><strong>Consent is captured</strong> as a boolean plus a timestamp in the onboarding JSON payload. The full consent text as the participant saw it is logged alongside.</li>
         </ol>
 
         <h2 id="irb-language">IRB Boilerplate</h2>
-        <p>Language you can adapt for the "data management" section of your protocol:</p>
+        <p>Two variants depending on your data-return design — use the one that matches your protocol.</p>
 
+        <h3>Variant A: Manual participant return (no webhook)</h3>
         <blockquote>
-          <p>Participant response data will be collected via a custom web-based application (EMA Forge, an open-source static web tool). The application operates entirely in the participant's mobile browser: response data is generated and stored on the participant's device and is not transmitted to any central server in the course of normal operation. Participants return completed session files to the research team via [INSTITUTIONAL SECURE CHANNEL — e.g., REDCap file upload, institutional SFTP]. No protected health information or direct identifiers are included in the study data; participants are identified only by an opaque study ID. Physiological measurements (heart rate via photoplethysmography) are derived from the participant's smartphone camera locally; raw video is not stored or transmitted. The application source code is open and available for review at [YOUR REPO URL].</p>
+          <p>Participant response data will be collected via a custom web-based application (EMA Forge, an open-source static web tool). The application operates entirely in the participant's mobile browser: response data is generated and stored on the participant's device and is not transmitted to any central server in the course of normal operation. Participants return completed session files to the research team via [INSTITUTIONAL SECURE CHANNEL — e.g., REDCap file upload, institutional SFTP]. No protected health information or direct identifiers are included in the study data; participants are identified only by an opaque study ID. Physiological measurements (heart rate via photoplethysmography) are derived from the participant's smartphone camera locally; raw video is not stored or transmitted. The application source code is open and available for review at <a href="https://github.com/keeganwhitacre/emaforge" target="_blank" rel="noopener">github.com/keeganwhitacre/emaforge</a>.</p>
+        </blockquote>
+
+        <h3>Variant B: Webhook auto-upload to a defined endpoint</h3>
+        <blockquote>
+          <p>Participant response data will be collected via a custom web-based application (EMA Forge, an open-source static web tool). The application operates in the participant's mobile browser and, at the end of each session, transmits the session's response data via HTTPS POST to a single pre-configured endpoint controlled by the research team at [ENDPOINT DESCRIPTION — e.g., an institutionally-hosted endpoint writing to a secured REDCap project / an institutional Google Workspace sheet under the PI's account / an AWS Lambda writing to an encrypted S3 bucket in the institution's AWS organization]. No data is transmitted to any other endpoint. If network transmission fails, the application falls back to on-device storage and manual return via [FALLBACK CHANNEL]. No protected health information or direct identifiers are included in the study data; participants are identified only by an opaque study ID. Physiological measurements (heart rate via photoplethysmography) are derived from the participant's smartphone camera locally; raw video is not stored or transmitted. The application source code is open and available for review at <a href="https://github.com/keeganwhitacre/emaforge" target="_blank" rel="noopener">github.com/keeganwhitacre/emaforge</a>.</p>
         </blockquote>
 
         <h2 id="limitations">Known Limitations</h2>
@@ -1285,10 +1486,6 @@ affect &lt;- df |&gt;
 
         <div class="feature-grid">
           <div class="feature-item">
-            <div class="feature-item-title">🔗 Webhook auto-upload <span class="status-pill wip">WIP</span></div>
-            <div class="feature-item-desc">Optional POST of the session JSON to a configured endpoint on save, so files land in REDCap / S3 / a custom ingest without participant action.</div>
-          </div>
-          <div class="feature-item">
             <div class="feature-item-title">📱 Twilio helpers <span class="status-pill wip">WIP</span></div>
             <div class="feature-item-desc">Generate Twilio-ready scheduled-message batches directly from the Deployment CSV, with auto-injected <code>t=</code> timestamps.</div>
           </div>
@@ -1308,12 +1505,146 @@ affect &lt;- df |&gt;
             <div class="feature-item-title">🔒 Optional AES-encrypted payloads <span class="status-pill planned">PLANNED</span></div>
             <div class="feature-item-desc">Client-side encryption of returned files against a lab-held public key, so return-channel compromise is not a data exposure.</div>
           </div>
+          <div class="feature-item">
+            <div class="feature-item-title">☁ More webhook templates <span class="status-pill planned">PLANNED</span></div>
+            <div class="feature-item-desc">Paste-and-go recipes for Microsoft Power Automate (→ SharePoint/OneDrive/Excel), REDCap API, and S3 presigned endpoints — alongside the existing Google Apps Script template.</div>
+          </div>
         </div>
 
-        <h2 id="twilio-webhooks">Twilio &amp; Webhooks <span class="status-pill wip">WIP</span></h2>
-        <p>These are the two most-requested integrations and are the next items on the build queue. A sketch of what's coming:</p>
+        <h2 id="webhook-upload">Auto-upload with Webhooks <span class="status-pill stable">STABLE</span></h2>
 
-        <h3>Twilio integration</h3>
+        <p>By default, each session ends with the participant tapping "Save Local Copy" and emailing the resulting file to your lab. This works, but it has two costs: it depends on the participant remembering the step, and it depends on your return channel being IRB-approved.</p>
+
+        <p>The <strong>webhook</strong> option removes both. When you paste a URL into the <em>Webhook URL</em> field in the Builder's Study tab, the exported study silently POSTs the full session JSON to that URL at save-time. The participant sees "✓ Data uploaded successfully" instead of a download prompt. If the upload fails (no network, endpoint down), the manual download button automatically re-appears — <strong>data is never lost silently</strong>.</p>
+
+        <div class="docs-callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <div class="docs-callout-content">
+            <p><strong>Design tradeoff worth understanding:</strong> enabling a webhook means you are now transmitting response data to an endpoint of your choosing. The core "serverless" guarantee (data stays on-device) is <em>opt-in</em> to preserve. If your IRB protocol specifies manual return, leave the field blank. If your IRB approves direct electronic return to a specific institutional endpoint, webhooks make the data pipeline hands-off for participants.</p>
+          </div>
+        </div>
+
+        <h3 id="webhook-payload">What gets sent</h3>
+        <p>The runtime POSTs a JSON body to your endpoint with this shape:</p>
+
+        <pre><code>{
+  "participant_id": "104",
+  "day": 2,
+  "window_id": "morning",
+  "session_data": {
+    "participantId": "104",
+    "sessionId":     "s_a1b2c3",
+    "day":           2,
+    "type":          "morning",
+    "status":        "complete",
+    "startedAt":     "2026-04-22T08:03:11Z",
+    "completedAt":   "2026-04-22T08:06:48Z",
+    "data": [ /* ema_response, epat_response, etc. — full payload */ ]
+  }
+}</code></pre>
+
+        <p>The top four fields are duplicated out of <code>session_data</code> for easy dispatch/filtering on your receiving end. The <code>session_data</code> object is the same JSON documented in <a href="#json-schema">JSON Schema</a>.</p>
+
+        <div class="docs-callout warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div class="docs-callout-content">
+            <p><strong>Content-Type is <code>text/plain</code>, not <code>application/json</code>.</strong> This is deliberate — it's the standard workaround that keeps the browser from firing a CORS preflight (OPTIONS) request, which Google Apps Script and many other simple receivers cannot answer. Your endpoint must parse the body as JSON despite the <code>text/plain</code> header. Every code example below does this.</p>
+          </div>
+        </div>
+
+        <h3 id="webhook-google">Google Sheets via Apps Script (recommended starting point)</h3>
+
+        <p>This is the fastest path to a working pipeline — no server, no billing, no institutional sign-off needed beyond your existing Google account. It gives you a live Google Sheet that fills in automatically as participants complete sessions.</p>
+
+        <details>
+          <summary>Full step-by-step setup (click to expand)</summary>
+          <div class="details-body">
+
+            <ol>
+              <li>Open <a href="https://sheets.google.com" target="_blank" rel="noopener">sheets.google.com</a> and create a new blank spreadsheet. Name it whatever you want your study data labeled as.</li>
+              <li>From the menu bar, click <strong>Extensions → Apps Script</strong>. A script editor tab opens.</li>
+              <li>Delete the placeholder <code>function myFunction() {}</code> and paste the script below.</li>
+              <li>Click the disk icon to save. It will ask you to name the project — anything works.</li>
+              <li>Click <strong>Deploy → New deployment</strong>. In the gear next to "Select type," choose <strong>Web app</strong>.</li>
+              <li>Set <strong>Execute as:</strong> <em>Me</em>, and <strong>Who has access:</strong> <em>Anyone</em>. (This is necessary — the exported study has no Google credentials. Your endpoint URL is essentially the credential; treat it as a secret.)</li>
+              <li>Click <strong>Deploy</strong>. Google will prompt you to authorize — accept. Copy the resulting <strong>Web app URL</strong> (it starts with <code>https://script.google.com/macros/s/...</code>).</li>
+              <li>Paste that URL into the <em>Webhook URL</em> field in EMA Forge's Builder → Study tab.</li>
+              <li>Re-export your study. Test it end-to-end with a dummy participant ID.</li>
+            </ol>
+
+            <p><strong>The script:</strong></p>
+            <pre><code>function doPost(e) {
+  try {
+    // 1. Parse the incoming text/plain payload from EMA Forge
+    const data = JSON.parse(e.postData.contents);
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+
+    // 2. Create headers if the sheet is completely empty
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(['Timestamp', 'Participant ID', 'Day', 'Window', 'Raw JSON']);
+      sheet.getRange(1, 1, 1, 5).setFontWeight("bold");
+      sheet.setFrozenRows(1);
+    }
+
+    // 3. Append the new row of data
+    sheet.appendRow([
+      new Date(),
+      data.participant_id || 'Unknown',
+      data.day || 'Unknown',
+      data.window_id || 'Unknown',
+      JSON.stringify(data.session_data || data)
+    ]);
+
+    // 4. Tell the EMA Forge app that the upload was successful
+    return ContentService.createTextOutput(JSON.stringify({"status": "success"}))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({"error": error.message}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}</code></pre>
+
+            <p>Every completed session becomes one row with the full session JSON in column E. For day-to-day monitoring, use Sheets' built-in filters on the Participant ID / Day / Window columns. For actual analysis, download the sheet as CSV and feed it to the Dashboard or process column E directly in R (e.g. <code>purrr::map(json_col, jsonlite::fromJSON)</code>).</p>
+
+            <p><strong>When you edit the script,</strong> you must redeploy — either create a new deployment (new URL), or use <strong>Manage deployments → Edit → New version</strong> (keeps the same URL). The latter is the sane default once you're in production.</p>
+
+            <p><strong>If you want separate columns per question</strong> instead of one "Raw JSON" blob, extend the script to walk <code>data.session_data.data</code> and append rows per <code>ema_response</code>. The current version is intentionally minimal so it works for any study regardless of question count.</p>
+
+          </div>
+        </details>
+
+        <h3 id="webhook-redcap">REDCap, institutional endpoints, and other receivers</h3>
+
+        <p>Any HTTPS endpoint that accepts a POST of text/JSON works. The only requirement is that your endpoint either (a) doesn't require a CORS preflight, or (b) is configured to respond <code>200 OK</code> to an OPTIONS request with appropriate CORS headers.</p>
+
+        <p>Patterns that are known to work:</p>
+        <ul>
+          <li><strong>Google Apps Script</strong> — documented above.</li>
+          <li><strong>A small AWS Lambda or Cloudflare Worker</strong> behind a public URL, forwarding into S3, DynamoDB, or an institutional SFTP. Trivial to write; roughly 30 lines.</li>
+          <li><strong>A thin institutional proxy</strong> — a single PHP / Node / Python endpoint on your lab's server that accepts the POST and writes to disk or REDCap's API. This is the path most IRBs prefer because the data never leaves institutional infrastructure.</li>
+          <li><strong>REDCap's File Repository</strong> via a tiny forwarding script. Direct browser-to-REDCap POST is blocked by CORS on most REDCap installations, so a one-hop institutional proxy is the realistic path.</li>
+        </ul>
+
+        <h3 id="webhook-microsoft">Microsoft / SharePoint / OneDrive</h3>
+
+        <p>Microsoft has a direct analogue to Apps Script called <strong>Power Automate</strong> (formerly Flow). You can build a flow whose trigger is "When an HTTP request is received" and whose actions write to an Excel workbook, SharePoint list, or OneDrive file. The flow exposes a URL that accepts POSTs — paste that URL into the Builder's webhook field, same as with Apps Script.</p>
+
+        <p>There's one catch: the "When an HTTP request is received" trigger is a <em>Premium</em> Power Automate connector, which many institutional Microsoft 365 licenses do not include. Before investing time in this path, check with your IT whether your account has Premium flows enabled. If not, the typical workaround is an Azure Function (free tier is generous) that writes to the same SharePoint/OneDrive location — same end result, different billing model.</p>
+
+        <p>A paste-and-go Power Automate template is on the <a href="#roadmap">roadmap</a>. In the interim, the generic pattern (trigger = HTTP request, action = write to Excel) is straightforward enough that a lab IT contact can stand one up in under an hour.</p>
+
+        <h3 id="webhook-cautions">Cautions and gotchas</h3>
+        <ul>
+          <li><strong>Your endpoint URL is effectively a credential.</strong> Anyone who has it can post synthetic data into your dataset. For serious studies, add a shared secret — have the study POST an <code>?auth=...</code> query parameter that the script checks, rotate it if leaked.</li>
+          <li><strong>Google Apps Script rate limits exist</strong> but are generous for EMA-scale traffic. Expect no issues below ~1000 participant-sessions per day. Beyond that, batch or switch to a dedicated endpoint.</li>
+          <li><strong>Apps Script responses don't always reach the client cleanly.</strong> The runtime treats any <code>response.ok</code> as success; if Apps Script happens to return a redirect to a final content URL, the fetch still counts as a success. Your row will appear in the sheet regardless. This is fine for the "did it save?" question; if you need byte-exact response parsing, use a real endpoint.</li>
+          <li><strong>If you change the webhook URL mid-study,</strong> participants who cached the old exported HTML will continue to post to the old URL until they clear site data or you push a new export. Make webhook changes at export boundaries, not mid-enrollment.</li>
+          <li><strong>Webhooks do not eliminate the manual-download safety net.</strong> By design. If connectivity fails at session end, the "Save Local Copy" button reappears and the participant can still return the file by your IRB-approved channel.</li>
+        </ul>
+
+        <h2 id="twilio-integration">Twilio Integration <span class="status-pill wip">WIP</span></h2>
+        <p>SMS delivery is the next integration on the build queue. The sketch:</p>
         <ul>
           <li>A new Deployment sub-tab that converts the routing CSV into a Twilio Messaging API batch (CSV or direct API call).</li>
           <li>Auto-injection of <code>t=</code> at Twilio's scheduled send-time, so expiry enforcement just works.</li>
@@ -1321,18 +1652,12 @@ affect &lt;- df |&gt;
           <li>Optional two-way SMS for unprompted "I want to check in now" responses, mapped to a designated emergency window.</li>
         </ul>
 
-        <h3>Webhook auto-upload</h3>
-        <ul>
-          <li>A Study-tab field for a <strong>webhook URL</strong> the runtime POSTs the session JSON to when the participant taps "Save".</li>
-          <li>Fallback to local download if the POST fails — never drops data silently.</li>
-          <li>Templates planned for: raw REDCap File Repository, S3 presigned URLs, and generic JSON endpoints.</li>
-          <li>Crucially, this stays <em>optional</em>. The serverless guarantee is the headline feature and shouldn't be silently downgraded.</li>
-        </ul>
+        <p>Until this ships, the practical path is: export your routing CSV from the Deployment tab → import it into Twilio Studio, a Twilio Functions project, or any institutional SMS tool that can schedule messages from a CSV. The CSV already contains everything needed (participant ID, day, window, pre-formatted URL).</p>
 
         <div class="docs-callout wip">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
           <div class="docs-callout-content">
-            <p>If you're planning a study that depends on either of these, reach out — usage patterns from real deployments shape what ships first.</p>
+            <p>If you're planning a study that depends on Twilio integration, reach out — usage patterns from real deployments shape what ships first.</p>
           </div>
         </div>
 
@@ -1520,7 +1845,36 @@ https://github.com/keeganwhitacre/emaforge</code></pre>
     observer.observe(header);
   });
 
-  // Click handler for smooth scroll
+  // Mobile sidebar drawer toggle
+  const hamburger = document.getElementById('docs-hamburger');
+  const sidebar = document.getElementById('docs-sidebar');
+  const overlay = document.getElementById('docs-sidebar-overlay');
+
+  function openSidebar() {
+    if (!sidebar || !overlay) return;
+    sidebar.classList.add('open');
+    overlay.classList.add('open');
+    if (hamburger) hamburger.setAttribute('aria-expanded', 'true');
+  }
+  function closeSidebar() {
+    if (!sidebar || !overlay) return;
+    sidebar.classList.remove('open');
+    overlay.classList.remove('open');
+    if (hamburger) hamburger.setAttribute('aria-expanded', 'false');
+  }
+  if (hamburger) {
+    hamburger.addEventListener('click', () => {
+      if (sidebar.classList.contains('open')) closeSidebar();
+      else openSidebar();
+    });
+  }
+  if (overlay) overlay.addEventListener('click', closeSidebar);
+  // Close sidebar when user rotates to wide viewport
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 900) closeSidebar();
+  });
+
+  // Click handler for smooth scroll — also closes the mobile drawer
   navLinks.forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
@@ -1532,25 +1886,10 @@ https://github.com/keeganwhitacre/emaforge</code></pre>
           behavior: 'smooth'
         });
       }
+      // If we're on mobile and the sidebar is the drawer, close it after nav
+      if (window.innerWidth <= 900) closeSidebar();
     });
   });
-// Toggle mobile sidebar
-const menuToggle = document.getElementById('menu-toggle');
-const docsApp = document.getElementById('docs-app');
-
-if (menuToggle) {
-  menuToggle.addEventListener('click', () => {
-    docsApp.classList.toggle('show-sidebar');
-  });
-}
-
-// Auto-close sidebar when clicking a link on mobile
-document.querySelectorAll('.docs-nav-link').forEach(link => {
-  link.addEventListener('click', () => {
-    docsApp.classList.remove('show-sidebar');
-  });
-});
-
 </script>
 </body>
 </html>
