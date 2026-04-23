@@ -711,7 +711,7 @@
         <a href="#hosting" class="docs-nav-link">Hosting</a>
         <a href="#routing" class="docs-nav-link">Participant Routing</a>
         <a href="#deployment-csv" class="docs-nav-link">Generating Links</a>
-        <a href="#notifications" class="docs-nav-link">Sending Prompts (WIP)</a>
+        <a href="#notifications" class="docs-nav-link">Sending Prompts</a>
       </div>
       <div class="docs-nav-group">
         <div class="docs-nav-title">Runtime Behavior</div>
@@ -744,7 +744,7 @@
       <div class="docs-nav-group">
         <div class="docs-nav-title">Integrations</div>
         <a href="#webhook-upload" class="docs-nav-link">Webhook Auto-upload</a>
-        <a href="#twilio-integration" class="docs-nav-link">Twilio (WIP)</a>
+        <a href="#twilio-integration" class="docs-nav-link">Twilio (Beta)</a>
       </div>
       <div class="docs-nav-group">
         <div class="docs-nav-title">Roadmap</div>
@@ -860,7 +860,7 @@
         <p>Tradeoffs to be honest about (see <a href="#limitations">Known Limitations</a>):</p>
         <ul>
           <li>There is no central "dashboard" of live enrollment — data is only visible once files are returned to the researcher.</li>
-          <li>EMA Forge does not send notifications itself. You need an external scheduler/SMS service to deliver links at the right time. Twilio helpers are on the roadmap (see <a href="#twilio-webhooks">below</a>).</li>
+          <li>EMA Forge does not send notifications itself. You need an external scheduler/SMS service to deliver links at the right time. The beta Twilio dispatcher ships this gap (see <a href="#twilio-integration">Twilio Integration</a>).</li>
           <li>The static host can see request metadata (IP, timestamp of page load). This is the same constraint as any web page — it's not a data transmission, but it's not nothing.</li>
         </ul>
 
@@ -889,7 +889,7 @@
             <tr><td>Heart-rate capture question type (PPG)</td><td><span class="status-pill beta">BETA</span></td><td>Requires rear camera + torch. iOS works; desktop no.</td></tr>
             <tr><td>ePAT task (heartbeat perception)</td><td><span class="status-pill beta">BETA</span></td><td>Shares PPG core with HR capture.</td></tr>
             <tr><td>Response latency in Dashboard</td><td><span class="status-pill wip">WIP</span></td><td>Needs external prompt-delivery timestamps — see <a href="#notifications">Sending Prompts</a>.</td></tr>
-            <tr><td>Twilio SMS helpers</td><td><span class="status-pill wip">WIP</span></td><td>Planned; see <a href="#twilio-webhooks">Roadmap</a>.</td></tr>
+            <tr><td>Twilio SMS dispatcher (Apps Script)</td><td><span class="status-pill beta">BETA</span></td><td>Generated from the Deployment tab; see <a href="#twilio-integration">Twilio Integration</a>. Awaiting external pilot.</td></tr>
             <tr><td>Webhook auto-upload on session complete</td><td><span class="status-pill stable">STABLE</span></td><td>Google Apps Script tested end-to-end; see <a href="#webhook-upload">Auto-upload with Webhooks</a>.</td></tr>
             <tr><td>Stroop / IAT / additional task modules</td><td><span class="status-pill planned">PLANNED</span></td><td>The task system is built to be extended; these are next in line.</td></tr>
           </tbody>
@@ -1160,9 +1160,12 @@ git push -u origin main
 
         <p>This CSV is the glue between EMA Forge and your delivery mechanism of choice — drop it into a Qualtrics contacts list, a Twilio scheduled-SMS campaign, an institutional email merge, or a lab-built scheduler. Your scheduler is responsible for appending a <code>t=</code> timestamp at send-time if you want expiry enforcement.</p>
 
-        <h2 id="notifications">Sending Prompts <span class="status-pill wip">WIP</span></h2>
-        <p>Delivery is currently out-of-scope — you bring your own SMS/email/push mechanism. The current recommendation is Twilio Programmable Messaging with scheduled-send. Native integration is on the <a href="#twilio-webhooks">roadmap</a>.</p>
-
+        <h2 id="notifications">Sending Prompts</h2>
+<p>You have two paths. Both use the same routing CSV as their source of truth.</p>
+<ul>
+  <li><strong>Bring your own mechanism.</strong> Drop the routing CSV into an institutional email merge, a Qualtrics contacts list, a Power Automate flow, or any SMS tool that can schedule messages from a CSV. You handle timing and <code>t=</code> injection.</li>
+  <li><strong>Export the Twilio dispatcher.</strong> <span class="status-pill beta">BETA</span> Generates an Apps Script that runs on a time trigger in a Google Sheet, handles timezone math, dedupes sends, and enforces <code>t=</code> expiry. See <a href="#twilio-integration">Twilio Integration</a> for full setup.</li>
+</ul>
         <!-- ========================================================= -->
         <!-- RUNTIME BEHAVIOR                                            -->
         <!-- ========================================================= -->
@@ -1325,9 +1328,24 @@ affect &lt;- df |&gt;
            sep = ";", convert = TRUE)
 </code></pre>
 
-        <h2 id="dashboard">Dashboard</h2>
-        <p><code>dashboard.html</code> is a local analysis UI. Drop in a folder containing your study's <code>config.json</code> and all returned participant JSON files; it parses locally and renders:</p>
+       <h2 id="dashboard">Dashboard</h2>
+<p><code>dashboard.html</code> is a local analysis UI. Everything parses in your browser; no data is transmitted anywhere.</p>
 
+<h3 id="dashboard-inputs">What to feed it</h3>
+<p>The Dashboard accepts two input shapes. You can mix them in a single import — the parser sorts out which files are which.</p>
+
+<ul>
+  <li><strong>A folder of JSON files.</strong> One per-session <code>.json</code> as produced by the participant app, plus a single <code>config.json</code> (the same one inside your exported study). This is the right shape when participants return files manually, or when you've downloaded them out of REDCap/institutional storage.</li>
+  <li><strong>A CSV from the Google Sheets webhook.</strong> <span class="status-pill beta">BETA</span> If you're using the <a href="#webhook-google">Google Apps Script webhook recipe</a>, your sheet has a <code>Raw JSON</code> column holding each session's payload. Export the sheet as <code>.csv</code> (File → Download → CSV) and import it alongside your <code>config.json</code>. The parser reads each row's <code>Raw JSON</code> cell as a full session payload.</li>
+</ul>
+
+<div class="docs-callout">
+  <div class="docs-callout-content">
+    <p><strong>Config caching.</strong> After your first successful import the Dashboard caches your <code>config.json</code> in browser storage. On subsequent visits you only need to drop in the data file(s) — the config is remembered. Clearing site data resets this.</p>
+  </div>
+</div>
+
+<p>Once imported, the Dashboard renders:</p>
         <h3>KPIs</h3>
         <ul>
           <li><strong>Avg. Compliance Rate</strong> — completed sessions / expected sessions, scoped by filters.</li>
@@ -1486,9 +1504,9 @@ affect &lt;- df |&gt;
 
         <div class="feature-grid">
           <div class="feature-item">
-            <div class="feature-item-title">📱 Twilio helpers <span class="status-pill wip">WIP</span></div>
-            <div class="feature-item-desc">Generate Twilio-ready scheduled-message batches directly from the Deployment CSV, with auto-injected <code>t=</code> timestamps.</div>
-          </div>
+  <div class="feature-item-title">📱 Twilio two-way + delivery receipts <span class="status-pill planned">PLANNED</span></div>
+  <div class="feature-item-desc">Auto-pause on STOP replies and ingest Twilio status-callback timestamps for true ping-to-open latency. The dispatcher itself is <a href="#twilio-integration">already beta</a>; these close the remaining two gaps.</div>
+</div>
           <div class="feature-item">
             <div class="feature-item-title">⏱ Live latency <span class="status-pill planned">PLANNED</span></div>
             <div class="feature-item-desc">Once Twilio integration lands, the Dashboard will merge delivery timestamps to compute true ping-to-open latency.</div>
@@ -1643,23 +1661,101 @@ affect &lt;- df |&gt;
           <li><strong>Webhooks do not eliminate the manual-download safety net.</strong> By design. If connectivity fails at session end, the "Save Local Copy" button reappears and the participant can still return the file by your IRB-approved channel.</li>
         </ul>
 
-        <h2 id="twilio-integration">Twilio Integration <span class="status-pill wip">WIP</span></h2>
-        <p>SMS delivery is the next integration on the build queue. The sketch:</p>
-        <ul>
-          <li>A new Deployment sub-tab that converts the routing CSV into a Twilio Messaging API batch (CSV or direct API call).</li>
-          <li>Auto-injection of <code>t=</code> at Twilio's scheduled send-time, so expiry enforcement just works.</li>
-          <li>Opt-in support for Twilio's <em>Scheduling</em> feature (up to 7 days ahead) or deferred to a lab-side cron for longer horizons.</li>
-          <li>Optional two-way SMS for unprompted "I want to check in now" responses, mapped to a designated emergency window.</li>
-        </ul>
+        <h2 id="twilio-integration">Twilio Integration <span class="status-pill beta">BETA</span></h2>
 
-        <p>Until this ships, the practical path is: export your routing CSV from the Deployment tab → import it into Twilio Studio, a Twilio Functions project, or any institutional SMS tool that can schedule messages from a CSV. The CSV already contains everything needed (participant ID, day, window, pre-formatted URL).</p>
+<div class="docs-callout warn">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  <div class="docs-callout-content">
+    <p><strong>Beta — functional but not yet externally piloted.</strong> The dispatcher handles DST transitions, dedupes sends against a hidden log sheet, and enforces link expiry correctly. It has not yet run a full multi-participant study end-to-end. Pilot on your own phone before enrolling.</p>
+  </div>
+</div>
 
-        <div class="docs-callout wip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
-          <div class="docs-callout-content">
-            <p>If you're planning a study that depends on Twilio integration, reach out — usage patterns from real deployments shape what ships first.</p>
-          </div>
-        </div>
+<p>EMA Forge can now emit a ready-to-deploy Google Apps Script that dispatches scheduled SMS to participants via Twilio. It's a serverless companion to the serverless study app: the whole pipeline — scheduling, sending, retry, dedupe — lives in a spreadsheet attached to your Google account.</p>
+
+<p>From the Builder's <strong>Deployment</strong> tab, alongside the existing <em>Generate Routing CSV</em> button, an <em>Export Twilio Dispatcher (.gs)</em> button produces a single <code>.gs</code> file pre-configured with your study's URL, study length, expiry window, and schedule. You paste it into an Apps Script project attached to a Google Sheet and it does the rest.</p>
+
+<h3>Setup</h3>
+
+<ol>
+  <li>In the Builder's Deployment tab, set the <em>Hosted URL</em> to where your exported study lives (e.g. <code>https://your-lab.github.io/study/</code>).</li>
+  <li>Click <strong>Export Twilio Dispatcher (.gs)</strong>. You'll get a file named like <code>my-study-twilio-dispatcher.gs</code>.</li>
+  <li>Open <a href="https://sheets.google.com" target="_blank" rel="noopener">sheets.google.com</a> and create a blank spreadsheet. <strong>Extensions → Apps Script.</strong></li>
+  <li>Delete the placeholder <code>myFunction</code>. Paste the entire contents of the <code>.gs</code> file. Save.</li>
+  <li>Close and reopen the spreadsheet. You'll see a new <strong>EMA Forge 🛠️</strong> menu.</li>
+  <li>Click <strong>1. Setup Twilio & Roster</strong>. Supply your Twilio Account SID, Auth Token, and Twilio phone number (E.164 format, e.g. <code>+15551234567</code>). The wizard creates a Roster sheet with the schema below, plus a hidden <code>_Dispatch_Log</code> sheet for audit and dedupe.</li>
+  <li>Fill in the Roster. One row per participant.</li>
+  <li>Click <strong>2. Start Automation (every 15 min)</strong>. A time-based trigger is installed that runs <code>dispatchPrompts</code> every fifteen minutes.</li>
+</ol>
+
+<h3 id="twilio-roster-schema">Roster schema</h3>
+
+<table>
+  <thead><tr><th>Column</th><th>What to put in it</th></tr></thead>
+  <tbody>
+    <tr><td><code>Participant_ID</code></td><td>Matches the <code>?id=</code> parameter in the generated links. Must be unique.</td></tr>
+    <tr><td><code>Phone</code></td><td>E.164 format (<code>+15551234567</code>). Numbers without the country code will be rejected by Twilio.</td></tr>
+    <tr><td><code>Timezone</code></td><td>IANA zone string (<code>America/Los_Angeles</code>, <code>Europe/London</code>, <code>Asia/Tokyo</code>). <strong>Not a numeric offset</strong> — DST transitions would silently break a fixed-offset scheme twice a year.</td></tr>
+    <tr><td><code>Start_Date</code></td><td><code>YYYY-MM-DD</code> or <code>MM/DD/YYYY</code>. Interpreted as midnight in the participant's timezone.</td></tr>
+    <tr><td><code>Status</code></td><td><code>Active</code> to enroll. <code>Paused</code> to stop sends (e.g. if a participant replies STOP — see two-way caveat below). <code>Completed</code> is set automatically when the last day's last window has fired.</td></tr>
+    <tr><td><code>Current_Day</code>, <code>Next_Window</code>, <code>Next_Ping_ISO</code>, <code>Last_Sent_ISO</code></td><td>Managed by the dispatcher. Don't write to these manually unless you're intentionally rescheduling.</td></tr>
+  </tbody>
+</table>
+
+<div class="docs-callout">
+  <div class="docs-callout-content">
+    <p>Columns are looked up <em>by header name</em>, not position. You can insert a <code>Notes</code> column or reorder existing columns without breaking anything. The menu's <em>Setup</em> command reconciles missing headers non-destructively on each run.</p>
+  </div>
+</div>
+
+<h3 id="twilio-how-it-works">How dispatch actually works</h3>
+
+<p>Every 15 minutes the trigger runs <code>dispatchPrompts</code>, which for each Active participant:</p>
+
+<ol>
+  <li>Computes the participant's current study day in their own timezone. Handles DST correctly — a spring-forward or fall-back won't shift anyone's morning ping.</li>
+  <li>If a ping is already scheduled and its time has passed, sends it via Twilio, then clears the scheduled fields. The URL includes an <code>&t=</code> timestamp so the study's <code>expiry_minutes</code> setting is actually enforced.</li>
+  <li>Otherwise, schedules the next window: picks the first window (sorted by end-time) whose end is still in the participant's future today, or rolls to tomorrow's first window if they've finished today. Within the window, a random minute is picked — the core behavior any EMA designer needs.</li>
+  <li>Writes outcomes to the hidden <code>_Dispatch_Log</code> sheet with a <code>sent:HTTPcode</code> or <code>fail:HTTPcode:message</code> marker. Failures leave the ping scheduled for retry on the next tick; successes are recorded so a subsequent tick can't send a duplicate even if the sheet-write that clears <code>Next_Ping_ISO</code> somehow failed mid-operation.</li>
+</ol>
+
+<p>The dedupe key is <code>(Participant_ID, Day, Window_ID)</code> scoped to today in the participant's timezone. A participant gets at most one SMS per window per day, regardless of what happens to the sheet cells in between.</p>
+
+<h3 id="twilio-message-format">Message format</h3>
+
+<p>The outbound SMS is templated from your study name and expiry window:</p>
+
+<pre><code><em>StudyName</em>: time for your check-in. Expires in 60 min. <em>https://.../?id=104&day=2&session=morning&t=1732812000000</em>  Reply STOP to opt out.</code></pre>
+
+<p>The <em>Reply STOP to opt out</em> line is not optional. US A2P 10DLC and Twilio's own messaging policy require clear opt-out language in programmatic SMS. Your IRB will also want it.</p>
+
+<h3 id="twilio-menu-reference">Menu reference</h3>
+
+<table>
+  <thead><tr><th>Menu item</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>1. Setup Twilio & Roster</td><td>Stores credentials, creates/reconciles the Roster and <code>_Dispatch_Log</code> sheets. Safe to re-run; it won't clobber existing data.</td></tr>
+    <tr><td>2. Start Automation (every 15 min)</td><td>Installs the time trigger. Idempotent — running it twice doesn't double the trigger rate.</td></tr>
+    <tr><td>3. Pause Automation</td><td>Removes the dispatcher's triggers. The Roster is untouched; you can resume later by re-running Start.</td></tr>
+    <tr><td>Send test message to row 2</td><td>One-shot send to whatever phone is in row 2 of the Roster. Use this to verify credentials end-to-end before enrolling.</td></tr>
+  </tbody>
+</table>
+
+<h3 id="twilio-caveats">Known beta caveats</h3>
+
+<ul>
+  <li><strong>Two-way SMS is not wired.</strong> Participants who reply STOP will stop receiving messages from Twilio (Twilio handles the opt-out carrier-side automatically), but the dispatcher won't know and will keep trying. You'll see the failures accumulate in <code>_Dispatch_Log</code>. The manual workaround: set that participant's <code>Status</code> to <code>Paused</code>.</li>
+  <li><strong>Credentials are "script-private," not "secure."</strong> Anyone with edit access to the Apps Script project can read them back with two lines of code. For the typical single-PI setup this is fine; for a shared lab Sheet, restrict Apps Script edit access explicitly.</li>
+  <li><strong>Delivery-receipt latency is not captured.</strong> The dispatcher records when Twilio accepted the request, not when the carrier delivered the SMS. True ping-to-open latency still needs a separate Twilio status-callback integration (planned).</li>
+  <li><strong>Retry back-off is coarse.</strong> A transient Twilio failure retries on the next 15-minute tick. If Twilio is down for an hour you'll accumulate four attempts per participant before success. This is fine for Twilio's actual reliability profile but worth knowing.</li>
+  <li><strong>Apps Script has a 6-minute execution limit per trigger run.</strong> At 15-minute ticks and typical send rates this is never an issue, but if you're running more than a few hundred participants in one dispatcher, split them across multiple sheets.</li>
+</ul>
+
+<div class="docs-callout wip">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
+  <div class="docs-callout-content">
+    <p>If you pilot this, please send a note about what broke. The beta caveats above are the ones I already know about; you'll find the ones I don't.</p>
+  </div>
+</div>
 
         <!-- ========================================================= -->
         <!-- UNDER THE HOOD                                              -->
