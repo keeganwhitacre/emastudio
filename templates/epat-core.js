@@ -287,20 +287,21 @@
           }
 
           // median-anchored dicrotic gate
-          let isDicrotic = false;
-          const DICROTIC_MIN_PERIODS = 3;
-          if (recentPeriods.length >= DICROTIC_MIN_PERIODS) {
-            const medianMs = getMedian(recentPeriods) * 1000;
+            let isDicrotic = false;
+            const DICROTIC_MIN_PERIODS = 3;
+            // Default to a safe 800ms (75 BPM) baseline while learning the first 3 beats
+            const expectedPeriodMs = recentPeriods.length >= DICROTIC_MIN_PERIODS 
+            ? getMedian(recentPeriods) * 1000 
+            : 800;
             // 60% allows deep-breath rsa but blocks the notch (fires ~30–45% through cycle)
-            if (interval < medianMs * 0.60) isDicrotic = true;
-          }
+            if (interval < expectedPeriodMs * 0.60) isDicrotic = true;
 
-          if (isDicrotic) {
+            if (isDicrotic) {
             dicroticRejectCount++;
             if (onDicroticReject) onDicroticReject({
-              time: beatTime,
-              rejectedIbi: interval,
-              expectedPeriod: getMedian(recentPeriods) * 1000
+                time: beatTime,
+                rejectedIbi: interval,
+                expectedPeriod: expectedPeriodMs // <-- Use the warmup variable
             });
             // do NOT update lastBeatTime — notch is ignored
           } else {
@@ -314,7 +315,7 @@
             recentPeriods.push(instantPeriod);
             if (recentPeriods.length > MAX_RECENT_PERIODS) recentPeriods.shift();
 
-            averagePeriod = recentPeriods.reduce((a, b) => a + b, 0) / recentPeriods.length;
+            averagePeriod = getMedian(recentPeriods);
             const averageBPM = 60 / averagePeriod;
 
             if (onBeat) onBeat({ instantBPM, averageBPM, instantPeriod, averagePeriod, time: beatTime });
@@ -325,7 +326,7 @@
       animFrameId = requestAnimationFrame(processFrame);
     }
 
-    async function startCamera() {
+async function startCamera() {
       if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
 
       // prime permissions — ios enumerateDevices returns empty labels before permission
@@ -356,28 +357,48 @@
       }
 
       for (const cam of ranked) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              deviceId: { exact: cam.deviceId },
-              width:  { ideal: 640 },
-              height: { ideal: 480 },
-              frameRate: { ideal: 60, max: 120 }
-            }
-          });
-          track = stream.getVideoTracks()[0];
-          // try torch
+        let streamSuccess = false;
+        
+        // The Waterfall: Try strict 60, then strict 30, then fallback to anything
+        const frameRateFallbacks = [
+          { exact: 60 },
+          { exact: 30 },
+          { ideal: 30 } 
+        ];
+
+        for (const fpsTarget of frameRateFallbacks) {
           try {
-            const caps = track.getCapabilities ? track.getCapabilities() : {};
-            if (caps.torch) {
-              await track.applyConstraints({ advanced: [{ torch: true }] });
-              torchWorking = true;
-              break;
-            }
-          } catch (e) {}
-          // no torch — release and keep looking
-          stream.getTracks().forEach(t => t.stop()); stream = null; track = null;
-        } catch (e) { /* try next */ }
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                deviceId: { exact: cam.deviceId },
+                width:  { ideal: 640 },
+                height: { ideal: 480 },
+                frameRate: fpsTarget
+              }
+            });
+            streamSuccess = true;
+            break; // We successfully locked a framerate, stop trying
+          } catch (e) {
+            // Phone rejected this framerate constraint, loop and try the next one
+          }
+        }
+
+        if (!streamSuccess) continue; // Move to the next physical lens if all fallbacks failed
+
+        track = stream.getVideoTracks()[0];
+        
+        // try torch
+        try {
+          const caps = track.getCapabilities ? track.getCapabilities() : {};
+          if (caps.torch) {
+            await track.applyConstraints({ advanced: [{ torch: true }] });
+            torchWorking = true;
+            break; // Success! Break out of the camera loop
+          }
+        } catch (e) {}
+        
+        // no torch — release and keep looking
+        stream.getTracks().forEach(t => t.stop()); stream = null; track = null;
       }
 
       if (!stream) throw new Error("no usable rear camera with torch");
