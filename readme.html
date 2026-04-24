@@ -1398,6 +1398,13 @@ affect &lt;- df |&gt;
           </div>
         </details>
 
+        <div class="docs-callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
+          <div class="docs-callout-content">
+            <p><strong>Test the pipeline on your device:</strong> Open <a href="ppgtester.html"><code>ppgtester.html</code></a> to run a live camera capture and inspect beat detection, raw waveform, SQI, and IBI output in real time — without needing a full study session. Useful for validating that PPG works on a target device before deploying, or for checking signal quality in a given environment.</p>
+          </div>
+        </div>
+
         <h2 id="epat">ePAT — Ecological Phase Assessment Task</h2>
         <p>The <strong>ePAT</strong> is a cardiac interoceptive-accuracy task adapted for in-the-wild, mobile-first use. It is directly descended from the <strong>Phase Adjustment Task</strong> (PAT) and its refined successor <strong>PAT 2.0</strong> — see <a href="#acknowledgments">Acknowledgments &amp; Prior Work</a> for primary sources. Participants align an auditory tone with their own felt heartbeats by rotating a dial until the tone "feels like it's landing on" each beat. Their phase offset (in ms, relative to ground-truth peaks detected by the camera PPG) is the dependent measure.</p>
 
@@ -1773,6 +1780,7 @@ affect &lt;- df |&gt;
 ├── <span class="ft-dir">builder.html</span>           <span class="ft-comment"># Study authoring environment</span>
 ├── <span class="ft-dir">dashboard.html</span>         <span class="ft-comment"># Local analysis dashboard</span>
 ├── <span class="ft-dir">readme.html</span>            <span class="ft-comment"># This file</span>
+├── <span class="ft-dir">ppgtester.html</span>     <span class="ft-comment"># Standalone PPG pipeline tester</span>
 │
 ├── <span class="ft-dir">css/</span>
 │   └── studio.css             <span class="ft-comment"># Shared design tokens + component styles</span>
