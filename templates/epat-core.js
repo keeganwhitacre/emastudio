@@ -123,7 +123,7 @@
               Ta += (maxVal - Ta) / 10; T1 = Ta / 3;
               lastOnsetIndex = sampleIndex; noDetectTimer = 0;
               const framesAgo = (seLen - 1) - onsetIdx;
-              return { detected: true, onsetIndex: sampleIndex - framesAgo, peakEnergy: maxVal };
+              return { detected: true, onsetIndex: sampleIndex - framesAgo, framesAgo, peakEnergy: maxVal };
             }
           }
         }
@@ -269,7 +269,7 @@
       if (fingerPresent && (now - startTime > 2000)) {
         const result = WabpDetector.processSample(filtered);
         if (result.detected) {
-          const beatTime = now - (1000 / actualFPS);
+          const beatTime = now - ((result.framesAgo || 1) * (1000 / actualFPS));
           const interval = beatTime - lastBeatTime;
 
           // signal drop re-anchor
