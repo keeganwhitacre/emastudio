@@ -115,12 +115,27 @@
 
     /* ── Waveform ── */
     #wave-wrap {
-      flex-shrink: 0; height: 112px;
+      flex-shrink: 0; height: 88px;
       position: relative;
       border-bottom: 1px solid var(--border);
       background: var(--bg);
     }
     #wave-canvas { display: block; width: 100%; height: 100%; }
+
+    /* ── IBI tachogram ── */
+    #tach-wrap {
+      flex-shrink: 0; height: 72px;
+      position: relative;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    #tach-canvas { display: block; width: 100%; height: 100%; }
+    #tach-label {
+      position: absolute; top: 4px; right: 8px;
+      font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+      color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.08em;
+      pointer-events: none;
+    }
 
     /* Camera inset — top-left corner of waveform */
     #cam-preview {
@@ -548,6 +563,12 @@
     <div id="beat-line"></div>
   </div>
 
+  <!-- IBI tachogram -->
+  <div id="tach-wrap">
+    <canvas id="tach-canvas"></canvas>
+    <div id="tach-label">IBI ms</div>
+  </div>
+
   <!-- BPM hero -->
   <div id="bpm-hero">
     <div id="bpm-value">--</div>
@@ -649,14 +670,6 @@
         </svg>
         PAT Knob
       </button>
-
-      <button class="dock-pill" id="btn-lights">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <circle cx="12" cy="12" r="5"/>
-          <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-        </svg>
-        Torch Flash
-      </button>
     </div>
   </div>
 </div>
@@ -699,6 +712,8 @@ const WAVE_MAX = 200;
 let isRecording = false, sessionStartTime = 0;
 let timerRaf = null, motionInterval = null;
 let waveBuffer = [];
+let ibiBuffer = []; // rolling IBI series for tachogram (ms values)
+const IBI_MAX = 40;  // display last 40 beats
 let lastIbi = 0, cleanBeats = 0, flaggedBeats = 0;
 let currentSqi = 0, sqiBadSec = 0, lastSqiTime = 0;
 let pulseBeepOn = false;
@@ -707,7 +722,6 @@ let knobDragging = false, knobCx = 0, knobCy = 0, knobLastAngle = 0;
 let avgPeriod = 0, instPeriod = 0;
 let validationData = {};
 let ibiFlags = [], sqiSeries = [], dicroticList = [], knobTimings = [], toneTs = [];
-let torchOn = false;
 
 // ── UI refs ──
 const $ = id => document.getElementById(id);
@@ -719,6 +733,7 @@ const ui = {
   fingerDot:    $('finger-dot'),   fingerText: $('finger-text'),
   sqiBadge:     $('sqi-badge'),
   waveCanvas:   $('wave-canvas'),  camCanvas:  $('cam-canvas'), beatLine: $('beat-line'),
+  tachCanvas:   $('tach-canvas'),
   bpmVal:       $('bpm-value'),
   sBeats:       $('s-beats'),      sClean:     $('s-clean'),   sFlagged: $('s-flagged'),
   sDic:         $('s-dic'),        sMarkers:   $('s-markers'),
@@ -726,7 +741,7 @@ const ui = {
   dockIdle:     $('dock-idle'),    dockActive: $('dock-active'),
   btnStart:     $('btn-start'),    btnSync:    $('btn-sync'),   btnStop: $('btn-stop'),
   btnBeep:      $('btn-beep'),     btnTone:    $('btn-tone'),
-  btnKnob:      $('btn-knob'),     btnLights:  $('btn-lights'),
+  btnKnob:      $('btn-knob'),
   knobSheet:    $('knob-sheet'),   btnCloseKnob: $('btn-close-knob'),
   dial:         $('dial'),         knobPhaseVal: $('knob-phase-val'), knobTonesVal: $('knob-tones-val'),
 };
@@ -788,6 +803,110 @@ function drawCam() {
   camCtx.drawImage(videoEl, 0, 0, 52, 52);
 }
 
+// ── IBI tachogram ──
+function drawTach() {
+  const canvas = ui.tachCanvas;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
+    canvas.width = W * dpr; canvas.height = H * dpr;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const buf = ibiBuffer;
+  if (buf.length < 2) {
+    // Draw empty baseline
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(173,186,199,0.1)';
+    ctx.lineWidth = 1 * dpr;
+    const y = H * dpr * 0.5;
+    ctx.moveTo(0, y); ctx.lineTo(W * dpr, y);
+    ctx.stroke();
+    return;
+  }
+
+  // Dynamic range: centre on mean, ±15% or at least ±60ms
+  const mean = buf.reduce((a, b) => a + b, 0) / buf.length;
+  const spread = Math.max(60, mean * 0.15);
+  const yMin = mean - spread, yMax = mean + spread;
+
+  const padH = 8 * dpr, padV = 10 * dpr;
+  const xStep = (W * dpr - padH * 2) / (IBI_MAX - 1);
+  const xOff = padH + (IBI_MAX - buf.length) * xStep;
+
+  const toY = v => padV + (1 - (v - yMin) / (yMax - yMin)) * (H * dpr - padV * 2);
+
+  // Draw horizontal reference lines at mean ±1 RMSSD-style grid
+  [mean - spread * 0.5, mean, mean + spread * 0.5].forEach((ref, i) => {
+    ctx.beginPath();
+    ctx.strokeStyle = i === 1
+      ? 'rgba(173,186,199,0.15)'
+      : 'rgba(173,186,199,0.07)';
+    ctx.lineWidth = 1 * dpr;
+    ctx.setLineDash(i === 1 ? [] : [4 * dpr, 4 * dpr]);
+    const y = toY(ref);
+    ctx.moveTo(0, y); ctx.lineTo(W * dpr, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Label mean line
+    if (i === 1) {
+      ctx.fillStyle = 'rgba(173,186,199,0.3)';
+      ctx.font = `${9 * dpr}px ui-monospace, monospace`;
+      ctx.fillText(`${Math.round(mean)}`, padH + 2, y - 3 * dpr);
+    }
+  });
+
+  // Flagged beats get a different colour; unflagged get blue
+  // We need flag state — store it alongside ibiBuffer
+  const pts = buf;
+  const flags = ibiBuffer._flags || [];
+
+  // Vertical tick per beat
+  for (let i = 0; i < pts.length; i++) {
+    const x = xOff + i * xStep;
+    const y = toY(pts[i]);
+    const flagged = flags[flags.length - pts.length + i];
+    ctx.beginPath();
+    ctx.strokeStyle = flagged ? 'rgba(210,153,34,0.5)' : 'rgba(56,139,253,0.4)';
+    ctx.lineWidth = 1 * dpr;
+    ctx.moveTo(x, H * dpr - padV);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+
+  // Stepped line connecting beat tops (looks like a proper tachogram)
+  ctx.beginPath();
+  ctx.strokeStyle = '#388bfd';
+  ctx.lineWidth = 1.5 * dpr;
+  ctx.lineJoin = 'round';
+  for (let i = 0; i < pts.length; i++) {
+    const x = xOff + i * xStep;
+    const y = toY(pts[i]);
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      // Step: horizontal then vertical
+      const prevX = xOff + (i - 1) * xStep;
+      ctx.lineTo(x, toY(pts[i - 1])); // horizontal
+      ctx.lineTo(x, y);               // vertical
+    }
+  }
+  ctx.stroke();
+
+  // Dots at each beat
+  for (let i = 0; i < pts.length; i++) {
+    const x = xOff + i * xStep;
+    const y = toY(pts[i]);
+    const flagged = flags[flags.length - pts.length + i];
+    ctx.beginPath();
+    ctx.fillStyle = flagged ? '#d29922' : '#388bfd';
+    ctx.arc(x, y, 2.5 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 // ── Timer ──
 function updateTimer() {
   if (!isRecording) return;
@@ -843,6 +962,14 @@ function handleBeat(beat) {
   lastIbi = ibiMs;
 
   ibiFlags.push({ time: beat.time, ibiMs: Math.round(ibiMs * 10) / 10, flag });
+
+  // Update tachogram buffer
+  if (!ibiBuffer._flags) ibiBuffer._flags = [];
+  ibiBuffer.push(ibiMs);
+  ibiBuffer._flags.push(!!flag);
+  if (ibiBuffer.length > IBI_MAX) { ibiBuffer.shift(); ibiBuffer._flags.shift(); }
+  drawTach();
+
   const total = cleanBeats + flaggedBeats;
   ui.sBeats.textContent = total;
   ui.sClean.textContent = cleanBeats;
@@ -887,23 +1014,6 @@ function addMarker(type = 'manual') {
   logLine('ev-marker', `[${elapsed}s]  SYNC MARKER #${count}  (${type})`);
 }
 
-// ── Torch toggle ──
-async function toggleTorch() {
-  if (!isRecording) return;
-  try {
-    const track = BeatDetector._track;
-    if (track && track.getCapabilities && track.getCapabilities().torch) {
-      torchOn = !torchOn;
-      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
-    }
-  } catch(e) {}
-  addMarker('torch');
-  ui.btnLights.classList.toggle('on-yellow', torchOn);
-  // Update label text
-  const txt = [...ui.btnLights.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
-  if (txt) txt.textContent = torchOn ? ' Torch ON' : ' Torch Flash';
-}
-
 // ── Beep toggle ──
 function toggleBeep() {
   pulseBeepOn = !pulseBeepOn;
@@ -922,11 +1032,21 @@ function playTone() {
 
 // ── Knob ──
 function openKnob() {
-  knobOn = true;
-  ui.knobSheet.classList.add('on');
-  ui.btnKnob.classList.add('on-yellow');
-  pulseBeepOn = false;
-  ui.btnBeep.classList.remove('on-green');
+  if (knobOn) {
+    // Second tap on the pill — turn knob off and reset
+    knobOn = false;
+    knobValue = 0; knobAngle = 0;
+    ui.dial.style.transform = '';
+    ui.knobPhaseVal.textContent = '0.000';
+    ui.knobSheet.classList.remove('on');
+    ui.btnKnob.classList.remove('on-yellow');
+  } else {
+    knobOn = true;
+    ui.knobSheet.classList.add('on');
+    ui.btnKnob.classList.add('on-yellow');
+    pulseBeepOn = false;
+    ui.btnBeep.classList.remove('on-green');
+  }
 }
 function closeKnob() { ui.knobSheet.classList.remove('on'); }
 
@@ -965,10 +1085,11 @@ async function startRecording() {
     ibiFlags: [], sqiTimeSeries: [], dicroticRejections: [], qualitySummary: {}
   };
   ibiFlags = []; sqiSeries = []; dicroticList = []; knobTimings = []; toneTs = [];
-  waveBuffer = []; lastIbi = 0; cleanBeats = 0; flaggedBeats = 0;
+  waveBuffer = []; ibiBuffer = []; ibiBuffer._flags = [];
+  lastIbi = 0; cleanBeats = 0; flaggedBeats = 0;
   currentSqi = 0; sqiBadSec = 0; lastSqiTime = 0;
   pulseBeepOn = false; knobOn = false; knobValue = 0; knobAngle = 0;
-  avgPeriod = 0; instPeriod = 0; torchOn = false;
+  avgPeriod = 0; instPeriod = 0;
 
   ui.bpmVal.textContent = '--'; ui.bpmVal.classList.remove('live');
   ui.sBeats.textContent = ui.sClean.textContent = ui.sFlagged.textContent =
@@ -978,7 +1099,6 @@ async function startRecording() {
   ui.fingerDot.classList.remove('on'); ui.fingerText.textContent = 'No signal';
   ui.btnBeep.classList.remove('on-green');
   ui.btnKnob.classList.remove('on-yellow');
-  ui.btnLights.classList.remove('on-yellow');
   ui.dial.style.transform = '';
   ui.knobPhaseVal.textContent = '0.000'; ui.knobTonesVal.textContent = '0 tones';
 
@@ -1044,7 +1164,6 @@ async function stopAndExport() {
   MotionDetector.stop();
   await BeatDetector.stop();
   WakeLockCtrl.release();
-  torchOn = false;
 
   ui.dockActive.classList.remove('on');
   ui.dockIdle.style.display = 'flex';
@@ -1101,10 +1220,7 @@ ui.btnTone.addEventListener('click', playTone);
 ui.btnKnob.addEventListener('click', openKnob);
 ui.btnCloseKnob.addEventListener('click', closeKnob);
 
-ui.btnLights.addEventListener('touchstart', (e) => { e.preventDefault(); toggleTorch(); }, { passive: false });
-ui.btnLights.addEventListener('click', toggleTorch);
-
-window.addEventListener('resize', () => { if (waveBuffer.length > 0) drawWave(); syncDockHeight(); });
+window.addEventListener('resize', () => { if (waveBuffer.length > 0) drawWave(); if (ibiBuffer.length > 0) drawTach(); syncDockHeight(); });
 
 // Initial dock height sync
 syncDockHeight();
