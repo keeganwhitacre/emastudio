@@ -392,8 +392,14 @@ async function startCamera() {
           const caps = track.getCapabilities ? track.getCapabilities() : {};
           if (caps.torch) {
             await track.applyConstraints({ advanced: [{ torch: true }] });
-            torchWorking = true;
-            break; // Success! Break out of the camera loop
+torchWorking = true;
+// Re-read FPS after torch — iOS may have changed frame rate when switching
+// exposure mode. If actualFPS was set from a 60fps negotiation attempt,
+// WABP's LPERIOD_SAMPLES would be 480 (8s * 60) instead of 240 (8s * 30),
+// causing ~16s calibration instead of ~8s.
+const settingsAfterTorch = track.getSettings();
+actualFPS = settingsAfterTorch.frameRate || actualFPS;
+break; // Success! Break out of the camera loop
           }
         } catch (e) {}
         
