@@ -311,7 +311,7 @@ const ePAT = (function() {
       trialCD.push(delay); trialRecordedHR.push(beat.instantBPM); trialInstantBpms.push(beat.averageBPM);
       processIbi(beat);
 
-      const dNow = delay < 0 ? currentInstantPeriod + delay : delay;
+      const dNow = delay < 0 ? currentAveragePeriod + delay : delay;
       if (dNow > 0 && dNow < 3) {
         const timing = core.AudioEngine.scheduleAt(dNow);
         if (timing) trialToneTimings.push({ beatTime: beat.time, intendedDelay: dNow, scheduledAt: timing.scheduledAt, perfNow: timing.perfNow });
