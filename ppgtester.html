@@ -15,22 +15,19 @@
     /* ── Forge design tokens already loaded via studio.css ──
        All sizing and color below uses those vars exclusively. */
 
-    /* Safe-area helpers for notched phones */
     :root {
       --safe-top:    env(safe-area-inset-top,    44px);
       --safe-bottom: env(safe-area-inset-bottom, 20px);
       --topbar-h:    52px;
-      --dock-h:      120px; /* updated dynamically by JS if needed */
+      --dock-h:      120px; 
     }
 
-    /* Override studio.css body scroll lock for this page */
     html, body {
       overflow: hidden;
       touch-action: manipulation;
       user-select: none; -webkit-user-select: none;
     }
 
-    /* ── Beat flash overlay ── */
     #flash {
       position: fixed; inset: 0;
       background: var(--accent);
@@ -40,15 +37,12 @@
     }
     #flash.on { opacity: 0.18; }
 
-    /* ── Hidden camera elements ── */
     #video-feed, #sampling-canvas {
       position: fixed; top: -9999px; left: -9999px;
       width: 40px; height: 40px; opacity: 0; pointer-events: none;
     }
 
-    /* ══════════════════════════════════════════
-       TOPBAR — identical structure to builder.html / dashboard.html
-    ══════════════════════════════════════════ */
+    /* TOPBAR */
     #topbar {
       position: fixed; top: 0; left: 0; right: 0;
       padding-top: var(--safe-top);
@@ -96,24 +90,17 @@
       letter-spacing: 0.04em; margin-top: 1px;
     }
     .topbar-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
-
-    /* Theme toggle — same .btn-ghost from studio.css */
     #theme-toggle { font-size: 12px; }
 
-    /* ══════════════════════════════════════════
-       MAIN APP SHELL
-    ══════════════════════════════════════════ */
+    /* MAIN APP SHELL */
     #app {
       position: fixed; inset: 0;
       display: flex; flex-direction: column;
-      /* push content below topbar */
       padding-top: calc(var(--safe-top) + var(--topbar-h));
-      /* push content above dock */
       padding-bottom: calc(var(--dock-h) + var(--safe-bottom));
       background: var(--bg);
     }
 
-    /* ── Waveform ── */
     #wave-wrap {
       flex-shrink: 0; height: 88px;
       position: relative;
@@ -122,7 +109,6 @@
     }
     #wave-canvas { display: block; width: 100%; height: 100%; }
 
-    /* ── IBI tachogram ── */
     #tach-wrap {
       flex-shrink: 0; height: 72px;
       position: relative;
@@ -137,7 +123,6 @@
       pointer-events: none;
     }
 
-    /* Camera inset — top-left corner of waveform */
     #cam-preview {
       position: absolute; top: 8px; left: 12px;
       width: 48px; height: 48px;
@@ -155,7 +140,6 @@
     }
     #beat-line.flash { opacity: 1; }
 
-    /* ── BPM hero ── */
     #bpm-hero {
       text-align: center; flex-shrink: 0;
       padding: 8px 20px 4px;
@@ -174,7 +158,6 @@
       text-transform: uppercase; letter-spacing: 0.12em; margin-top: 2px;
     }
 
-    /* ── Stats strip — uses Forge border/bg tokens ── */
     #stats-strip {
       display: grid; grid-template-columns: repeat(5, 1fr);
       gap: 1px; background: var(--border);
@@ -193,7 +176,6 @@
       text-transform: uppercase; letter-spacing: 0.05em; margin-top: 3px;
     }
 
-    /* ── Signal status row ── */
     #status-row {
       display: flex; align-items: center; justify-content: space-between;
       padding: 5px 14px;
@@ -215,6 +197,16 @@
 
     #status-right { display: flex; align-items: center; gap: 8px; }
 
+    #channel-badge {
+      font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+      padding: 2px 8px; border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--fg-3); background: transparent;
+      transition: color 0.3s, border-color 0.3s, background 0.3s;
+    }
+    #channel-badge.red { color: var(--red); border-color: var(--red); background: rgba(248,81,73,0.1); }
+    #channel-badge.green { color: var(--green); border-color: var(--green); background: rgba(46,160,67,0.1); }
+
     #sqi-badge {
       font-family: var(--font-mono); font-size: 10px; font-weight: 600;
       padding: 2px 8px; border-radius: 20px;
@@ -233,7 +225,6 @@
     }
     #timer.running { color: var(--green); }
 
-    /* ── Event log ── */
     #log-wrap { flex: 1; overflow: hidden; position: relative; }
     #log {
       position: absolute; inset: 0;
@@ -248,12 +239,11 @@
     }
     #log .ev-clean  { color: var(--green); }
     #log .ev-flag   { color: var(--yellow); }
-    #log .ev-dic    { color: #a371f7; }    /* purple — not in studio tokens, keep as-is */
+    #log .ev-dic    { color: #a371f7; }
     #log .ev-info   { color: var(--blue); }
     #log .ev-marker { color: var(--fg); font-weight: 700; }
     #log .ev-bad    { color: var(--red); }
 
-    /* ── Motion warning ── */
     #motion-warn {
       position: absolute; left: 10px; right: 10px; bottom: 4px;
       background: var(--red-dim);
@@ -265,9 +255,7 @@
     }
     #motion-warn.on { opacity: 1; }
 
-    /* ══════════════════════════════════════════
-       DOCK — Forge-styled, not blurred black
-    ══════════════════════════════════════════ */
+    /* DOCK */
     #dock {
       position: fixed; bottom: 0; left: 0; right: 0;
       background: var(--bg-1);
@@ -275,8 +263,6 @@
       z-index: 40;
       padding-bottom: var(--safe-bottom);
     }
-
-    /* IDLE state */
     #dock-idle { padding: 10px 16px; display: flex; }
     #btn-start {
       width: 100%; height: 44px;
@@ -291,11 +277,8 @@
     #btn-start:active { opacity: 0.85; transform: scale(0.98); }
     #btn-start svg { width: 13px; height: 13px; }
 
-    /* ACTIVE state */
     #dock-active { display: none; flex-direction: column; }
     #dock-active.on { display: flex; }
-
-    /* Row 1: primary action buttons */
     #dock-row1 { display: flex; gap: 8px; padding: 10px 16px 6px; }
 
     #btn-sync {
@@ -326,7 +309,6 @@
     #btn-stop:active { transform: scale(0.97); }
     #btn-stop svg { width: 11px; height: 11px; }
 
-    /* Row 2: scrollable pill controls */
     #dock-row2 {
       display: flex; gap: 6px;
       padding: 0 16px 8px;
@@ -348,19 +330,11 @@
     }
     .dock-pill:active { opacity: 0.7; transform: scale(0.97); }
     .dock-pill svg { width: 12px; height: 12px; flex-shrink: 0; }
+    .dock-pill.on-green  { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+    .dock-pill.on-yellow { background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow); }
 
-    /* Active states using Forge token colors */
-    .dock-pill.on-green  {
-      background: var(--green-dim); border-color: var(--green); color: var(--green);
-    }
-    .dock-pill.on-yellow {
-      background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow);
-    }
-
-    /* ══════════════════════════════════════════
-       SESSION SHEET — bottom sheet modal
-    ══════════════════════════════════════════ */
-    #session-sheet {
+    /* SHEETS */
+    #session-sheet, #knob-sheet {
       position: fixed; inset: 0; z-index: 200;
       background: rgba(0,0,0,0.65);
       backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -407,16 +381,7 @@
       cursor: pointer; margin-top: 4px;
     }
 
-    /* ══════════════════════════════════════════
-       KNOB SHEET — phase adjustment overlay
-    ══════════════════════════════════════════ */
-    #knob-sheet {
-      position: fixed; inset: 0; z-index: 150;
-      background: rgba(0,0,0,0.5);
-      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-      display: none; align-items: flex-end;
-      padding-bottom: var(--safe-bottom);
-    }
+    #knob-sheet { z-index: 150; }
     #knob-sheet.on { display: flex; }
     #knob-card {
       background: var(--bg-2);
@@ -425,17 +390,9 @@
       border-top: 1px solid var(--border);
       display: flex; flex-direction: column; align-items: center; gap: 12px;
     }
-    #knob-handle {
-      width: 32px; height: 3px; border-radius: 2px; background: var(--border-hi);
-    }
-    #knob-card h3 {
-      font-size: 14px; font-weight: 700; color: var(--fg);
-      letter-spacing: -0.02em;
-    }
-    .knob-meta {
-      font-family: var(--font-mono); font-size: 11px; color: var(--fg-3);
-      display: flex; gap: 16px;
-    }
+    #knob-handle { width: 32px; height: 3px; border-radius: 2px; background: var(--border-hi); }
+    #knob-card h3 { font-size: 14px; font-weight: 700; color: var(--fg); letter-spacing: -0.02em; }
+    .knob-meta { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); display: flex; gap: 16px; }
     #knob-phase-val { color: var(--fg); font-weight: 600; }
 
     #dial-wrap {
@@ -485,9 +442,6 @@
 <video id="video-feed" playsinline muted></video>
 <canvas id="sampling-canvas"></canvas>
 
-<!-- ══════════════════════════════════════════
-     TOPBAR
-══════════════════════════════════════════ -->
 <header id="topbar">
   <div id="topbar-inner">
     <a href="index.html" class="topbar-back" title="Back to home">
@@ -522,7 +476,6 @@
   </div>
 </header>
 
-<!-- SESSION SHEET -->
 <div id="session-sheet">
   <div id="session-card">
     <h2>New Session</h2>
@@ -533,7 +486,6 @@
   </div>
 </div>
 
-<!-- KNOB SHEET -->
 <div id="knob-sheet">
   <div id="knob-card">
     <div id="knob-handle"></div>
@@ -551,75 +503,49 @@
   </div>
 </div>
 
-<!-- MAIN APP -->
 <div id="app">
-
-  <!-- Waveform with camera inset -->
   <div id="wave-wrap">
     <canvas id="wave-canvas"></canvas>
-    <div id="cam-preview">
-      <canvas id="cam-canvas"></canvas>
-    </div>
+    <div id="cam-preview"><canvas id="cam-canvas"></canvas></div>
     <div id="beat-line"></div>
   </div>
 
-  <!-- IBI tachogram -->
   <div id="tach-wrap">
     <canvas id="tach-canvas"></canvas>
     <div id="tach-label">IBI ms</div>
   </div>
 
-  <!-- BPM hero -->
   <div id="bpm-hero">
     <div id="bpm-value">--</div>
     <div id="bpm-label">beats per minute</div>
   </div>
 
-  <!-- Stats strip -->
   <div id="stats-strip">
-    <div class="sc">
-      <div class="sc-val" id="s-beats">0</div>
-      <div class="sc-lbl">Beats</div>
-    </div>
-    <div class="sc">
-      <div class="sc-val" id="s-clean" style="color:var(--green)">0</div>
-      <div class="sc-lbl">Clean</div>
-    </div>
-    <div class="sc">
-      <div class="sc-val" id="s-flagged" style="color:var(--yellow)">0</div>
-      <div class="sc-lbl">Flagged</div>
-    </div>
-    <div class="sc">
-      <div class="sc-val" id="s-dic" style="color:#a371f7">0</div>
-      <div class="sc-lbl">Dicrotic</div>
-    </div>
-    <div class="sc">
-      <div class="sc-val" id="s-markers">0</div>
-      <div class="sc-lbl">Markers</div>
-    </div>
+    <div class="sc"><div class="sc-val" id="s-beats">0</div><div class="sc-lbl">Beats</div></div>
+    <div class="sc"><div class="sc-val" id="s-clean" style="color:var(--green)">0</div><div class="sc-lbl">Clean</div></div>
+    <div class="sc"><div class="sc-val" id="s-flagged" style="color:var(--yellow)">0</div><div class="sc-lbl">Flagged</div></div>
+    <div class="sc"><div class="sc-val" id="s-dic" style="color:#a371f7">0</div><div class="sc-lbl">Dicrotic</div></div>
+    <div class="sc"><div class="sc-val" id="s-markers">0</div><div class="sc-lbl">Markers</div></div>
   </div>
 
-  <!-- Signal status row -->
   <div id="status-row">
     <div id="finger-status">
       <div id="finger-dot"></div>
       <span id="finger-text">No signal</span>
     </div>
     <div id="status-right">
+      <span id="channel-badge">CH --</span>
       <span id="sqi-badge">SQI --</span>
       <span id="timer">00:00</span>
     </div>
   </div>
 
-  <!-- Event log -->
   <div id="log-wrap">
     <div id="log"></div>
     <div id="motion-warn">Motion detected — hold still</div>
   </div>
-
 </div>
 
-<!-- DOCK -->
 <div id="dock">
   <div id="dock-idle">
     <button id="btn-start">
@@ -631,7 +557,6 @@
   </div>
 
   <div id="dock-active">
-    <!-- Row 1: primary actions -->
     <div id="dock-row1">
       <button id="btn-sync">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
@@ -647,7 +572,6 @@
       </button>
     </div>
 
-    <!-- Row 2: scrollable pill controls -->
     <div id="dock-row2">
       <button class="dock-pill" id="btn-beep">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -678,7 +602,6 @@
 <script>
 "use strict";
 
-// ── Theme toggle ──
 const themeBtn = document.getElementById('theme-toggle');
 if (themeBtn) {
   themeBtn.addEventListener('click', () => {
@@ -689,7 +612,6 @@ if (themeBtn) {
   });
 }
 
-// ── Dial ticks ──
 (function() {
   const c = document.getElementById('dial-ticks');
   for (let i = 0; i < 60; i++) {
@@ -700,20 +622,17 @@ if (themeBtn) {
   }
 })();
 
-// ── Core ──
 const { WakeLockCtrl, BeatDetector, AudioEngine, MotionDetector } = window.ePATCore;
 
-// ── Constants ──
 const IBI_THRESHOLD = 0.30;
 const SQI_GOOD = 0.008, SQI_WARN = 0.003;
 const WAVE_MAX = 200;
 
-// ── State ──
 let isRecording = false, sessionStartTime = 0;
 let timerRaf = null, motionInterval = null;
 let waveBuffer = [];
-let ibiBuffer = []; // rolling IBI series for tachogram (ms values)
-const IBI_MAX = 40;  // display last 40 beats
+let ibiBuffer = []; 
+const IBI_MAX = 40;  
 let lastIbi = 0, cleanBeats = 0, flaggedBeats = 0;
 let currentSqi = 0, sqiBadSec = 0, lastSqiTime = 0;
 let pulseBeepOn = false;
@@ -723,7 +642,6 @@ let avgPeriod = 0, instPeriod = 0;
 let validationData = {};
 let ibiFlags = [], sqiSeries = [], dicroticList = [], knobTimings = [], toneTs = [];
 
-// ── UI refs ──
 const $ = id => document.getElementById(id);
 const ui = {
   flash:        $('flash'),
@@ -731,7 +649,7 @@ const ui = {
   btnBegin:     $('btn-begin'),     btnCancel: $('btn-cancel'),
   timer:        $('timer'),
   fingerDot:    $('finger-dot'),   fingerText: $('finger-text'),
-  sqiBadge:     $('sqi-badge'),
+  sqiBadge:     $('sqi-badge'),    channelBadge: $('channel-badge'),
   waveCanvas:   $('wave-canvas'),  camCanvas:  $('cam-canvas'), beatLine: $('beat-line'),
   tachCanvas:   $('tach-canvas'),
   bpmVal:       $('bpm-value'),
@@ -746,13 +664,11 @@ const ui = {
   dial:         $('dial'),         knobPhaseVal: $('knob-phase-val'), knobTonesVal: $('knob-tones-val'),
 };
 
-// ── Sync dock height to CSS var ──
 function syncDockHeight() {
   const dock = document.getElementById('dock');
   if (dock) document.documentElement.style.setProperty('--dock-h', dock.offsetHeight + 'px');
 }
 
-// ── Waveform ──
 let camCtx = null;
 let videoEl = null;
 
@@ -773,9 +689,8 @@ function drawWave() {
   const pad = 10 * dpr, xStep = (W * dpr) / WAVE_MAX;
   const xOff = (WAVE_MAX - waveBuffer.length) * xStep;
 
-  // Glow pass
   ctx.beginPath();
-  ctx.strokeStyle = 'rgba(232,113,106,0.22)'; /* accent with low opacity */
+  ctx.strokeStyle = 'rgba(232,113,106,0.22)';
   ctx.lineWidth = 7 * dpr; ctx.lineJoin = 'round';
   for (let i = 0; i < waveBuffer.length; i++) {
     const x = xOff + i * xStep;
@@ -784,9 +699,8 @@ function drawWave() {
   }
   ctx.stroke();
 
-  // Main line — accent color
   ctx.beginPath();
-  ctx.strokeStyle = '#e8716a'; /* var(--accent) */
+  ctx.strokeStyle = '#e8716a'; 
   ctx.lineWidth = 1.5 * dpr; ctx.lineJoin = 'round';
   for (let i = 0; i < waveBuffer.length; i++) {
     const x = xOff + i * xStep;
@@ -803,7 +717,6 @@ function drawCam() {
   camCtx.drawImage(videoEl, 0, 0, 52, 52);
 }
 
-// ── IBI tachogram ──
 function drawTach() {
   const canvas = ui.tachCanvas;
   const dpr = window.devicePixelRatio || 1;
@@ -816,7 +729,6 @@ function drawTach() {
 
   const buf = ibiBuffer;
   if (buf.length < 2) {
-    // Draw empty baseline
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(173,186,199,0.1)';
     ctx.lineWidth = 1 * dpr;
@@ -826,7 +738,6 @@ function drawTach() {
     return;
   }
 
-  // Dynamic range: centre on mean, ±15% or at least ±60ms
   const mean = buf.reduce((a, b) => a + b, 0) / buf.length;
   const spread = Math.max(60, mean * 0.15);
   const yMin = mean - spread, yMax = mean + spread;
@@ -837,12 +748,9 @@ function drawTach() {
 
   const toY = v => padV + (1 - (v - yMin) / (yMax - yMin)) * (H * dpr - padV * 2);
 
-  // Draw horizontal reference lines at mean ±1 RMSSD-style grid
   [mean - spread * 0.5, mean, mean + spread * 0.5].forEach((ref, i) => {
     ctx.beginPath();
-    ctx.strokeStyle = i === 1
-      ? 'rgba(173,186,199,0.15)'
-      : 'rgba(173,186,199,0.07)';
+    ctx.strokeStyle = i === 1 ? 'rgba(173,186,199,0.15)' : 'rgba(173,186,199,0.07)';
     ctx.lineWidth = 1 * dpr;
     ctx.setLineDash(i === 1 ? [] : [4 * dpr, 4 * dpr]);
     const y = toY(ref);
@@ -850,7 +758,6 @@ function drawTach() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Label mean line
     if (i === 1) {
       ctx.fillStyle = 'rgba(173,186,199,0.3)';
       ctx.font = `${9 * dpr}px ui-monospace, monospace`;
@@ -858,12 +765,9 @@ function drawTach() {
     }
   });
 
-  // Flagged beats get a different colour; unflagged get blue
-  // We need flag state — store it alongside ibiBuffer
   const pts = buf;
   const flags = ibiBuffer._flags || [];
 
-  // Vertical tick per beat
   for (let i = 0; i < pts.length; i++) {
     const x = xOff + i * xStep;
     const y = toY(pts[i]);
@@ -876,7 +780,6 @@ function drawTach() {
     ctx.stroke();
   }
 
-  // Stepped line connecting beat tops (looks like a proper tachogram)
   ctx.beginPath();
   ctx.strokeStyle = '#388bfd';
   ctx.lineWidth = 1.5 * dpr;
@@ -887,15 +790,13 @@ function drawTach() {
     if (i === 0) {
       ctx.moveTo(x, y);
     } else {
-      // Step: horizontal then vertical
       const prevX = xOff + (i - 1) * xStep;
-      ctx.lineTo(x, toY(pts[i - 1])); // horizontal
-      ctx.lineTo(x, y);               // vertical
+      ctx.lineTo(x, toY(pts[i - 1])); 
+      ctx.lineTo(x, y);               
     }
   }
   ctx.stroke();
 
-  // Dots at each beat
   for (let i = 0; i < pts.length; i++) {
     const x = xOff + i * xStep;
     const y = toY(pts[i]);
@@ -907,7 +808,6 @@ function drawTach() {
   }
 }
 
-// ── Timer ──
 function updateTimer() {
   if (!isRecording) return;
   const e = performance.now() - sessionStartTime;
@@ -917,13 +817,11 @@ function updateTimer() {
   timerRaf = requestAnimationFrame(updateTimer);
 }
 
-// ── Beat flash ──
 function triggerFlash() {
   ui.flash.classList.add('on');
   setTimeout(() => ui.flash.classList.remove('on'), 80);
 }
 
-// ── Log ──
 function logLine(cls, msg) {
   const d = document.createElement('div');
   d.className = cls; d.textContent = msg;
@@ -932,19 +830,30 @@ function logLine(cls, msg) {
   if (ui.log.children.length > 400) ui.log.removeChild(ui.log.firstChild);
 }
 
-// ── SQI ──
-function handleSqi(sqi) {
-  currentSqi = sqi;
+// ── NEW SQI LOGIC: Now accepts both channels and updates UI ──
+function handleSqi(sqiRed, sqiGreen, activeCh) {
+  currentSqi = activeCh === 'red' ? sqiRed : sqiGreen;
   const now = performance.now();
-  if (lastSqiTime > 0 && sqi < SQI_WARN) sqiBadSec += (now - lastSqiTime) / 1000;
+  if (lastSqiTime > 0 && currentSqi < SQI_WARN) sqiBadSec += (now - lastSqiTime) / 1000;
   lastSqiTime = now;
-  sqiSeries.push({ time: now, sqi: Math.round(sqi * 100000) / 100000 });
-  const pct = (sqi * 100).toFixed(2);
+  
+  // Record BOTH channel metrics and the active state!
+  sqiSeries.push({ 
+    time: now, 
+    redSQI: Math.round(sqiRed * 100000) / 100000, 
+    greenSQI: Math.round(sqiGreen * 100000) / 100000,
+    activeChannel: activeCh
+  });
+
+  const pct = (currentSqi * 100).toFixed(2);
   ui.sqiBadge.textContent = `SQI ${pct}%`;
-  ui.sqiBadge.className = sqi >= SQI_GOOD ? 'good' : sqi >= SQI_WARN ? 'warn' : 'bad';
+  ui.sqiBadge.className = currentSqi >= SQI_GOOD ? 'good' : currentSqi >= SQI_WARN ? 'warn' : 'bad';
+
+  // Update UI channel badge
+  ui.channelBadge.textContent = activeCh.toUpperCase();
+  ui.channelBadge.className = activeCh;
 }
 
-// ── Beat ──
 function handleBeat(beat) {
   validationData.beatTimestamps.push(beat.time);
   avgPeriod = beat.averagePeriod;
@@ -963,7 +872,6 @@ function handleBeat(beat) {
 
   ibiFlags.push({ time: beat.time, ibiMs: Math.round(ibiMs * 10) / 10, flag });
 
-  // Update tachogram buffer
   if (!ibiBuffer._flags) ibiBuffer._flags = [];
   ibiBuffer.push(ibiMs);
   ibiBuffer._flags.push(!!flag);
@@ -991,7 +899,7 @@ function handleBeat(beat) {
 
   if (knobOn && avgPeriod > 0) {
     const delay = (avgPeriod / 2) * knobValue;
-    const dNow = delay < 0 ? avgPeriod + delay : delay;
+    const dNow = delay < 0 ? instPeriod + delay : delay;
     if (dNow > 0 && dNow < 3) {
       const timing = AudioEngine.scheduleAt(dNow);
       if (timing) {
@@ -1002,7 +910,6 @@ function handleBeat(beat) {
   }
 }
 
-// ── Sync marker ──
 function addMarker(type = 'manual') {
   if (!isRecording) return;
   const t = performance.now();
@@ -1014,13 +921,11 @@ function addMarker(type = 'manual') {
   logLine('ev-marker', `[${elapsed}s]  SYNC MARKER #${count}  (${type})`);
 }
 
-// ── Beep toggle ──
 function toggleBeep() {
   pulseBeepOn = !pulseBeepOn;
   ui.btnBeep.classList.toggle('on-green', pulseBeepOn);
 }
 
-// ── Test tone ──
 function playTone() {
   if (!isRecording) return;
   AudioEngine.resume(); AudioEngine.play();
@@ -1030,10 +935,8 @@ function playTone() {
   logLine('ev-info', `[${elapsed}s] test tone`);
 }
 
-// ── Knob ──
 function openKnob() {
   if (knobOn) {
-    // Second tap on the pill — turn knob off and reset
     knobOn = false;
     knobValue = 0; knobAngle = 0;
     ui.dial.style.transform = '';
@@ -1075,7 +978,6 @@ window.addEventListener('pointermove', (e) => {
 }, { passive: false });
 window.addEventListener('pointerup', () => { knobDragging = false; });
 
-// ── Start ──
 async function startRecording() {
   const sid = ui.sessionId.value.trim() || `VALIDATE_${Date.now()}`;
   validationData = {
@@ -1096,6 +998,10 @@ async function startRecording() {
     ui.sDic.textContent = ui.sMarkers.textContent = '0';
   ui.log.innerHTML = '';
   ui.sqiBadge.textContent = 'SQI --'; ui.sqiBadge.className = '';
+  
+  // Reset new channel badge
+  ui.channelBadge.textContent = 'CH --'; ui.channelBadge.className = '';
+  
   ui.fingerDot.classList.remove('on'); ui.fingerText.textContent = 'No signal';
   ui.btnBeep.classList.remove('on-green');
   ui.btnKnob.classList.remove('on-yellow');
@@ -1156,7 +1062,6 @@ async function startRecording() {
   logLine('ev-info', `started: ${sid}`);
 }
 
-// ── Stop & export ──
 async function stopAndExport() {
   isRecording = false;
   if (timerRaf) cancelAnimationFrame(timerRaf);
@@ -1197,7 +1102,6 @@ async function stopAndExport() {
   logLine('ev-info', `exported: ${validationData.sessionID}`);
 }
 
-// ── Wire events ──
 ui.btnStart.addEventListener('click', () => {
   ui.sessionSheet.style.display = 'flex';
   setTimeout(() => ui.sessionId.focus(), 100);
@@ -1222,7 +1126,6 @@ ui.btnCloseKnob.addEventListener('click', closeKnob);
 
 window.addEventListener('resize', () => { if (waveBuffer.length > 0) drawWave(); if (ibiBuffer.length > 0) drawTach(); syncDockHeight(); });
 
-// Initial dock height sync
 syncDockHeight();
 </script>
 </body>
