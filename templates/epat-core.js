@@ -170,7 +170,7 @@
               Ta += (maxVal - Ta) / 10; T1 = Ta / 3;
               lastOnsetIndex = sampleIndex; noDetectTimer = 0;
               const framesAgo = (seLen - 1) - onsetIdx;
-              return { detected: true, onsetIndex: sampleIndex - framesAgo, framesAgo, peakEnergy: maxVal };
+              return { detected: true, onsetIndex: sampleIndex - framesAgo, framesAgo, totalFramesAgo: framesAgo + SLP_WINDOW, peakEnergy: maxVal };
             }
           }
         }
@@ -529,7 +529,7 @@
         const lastBeat  = activeChannel === 'red' ? lastBeatTimeRed : lastBeatTimeGreen;
 
         if (result.detected) {
-          const beatTime = now - ((result.framesAgo || 1) * (1000 / actualFPS));
+          const beatTime = now - (result.totalFramesAgo * (1000 / actualFPS));
           const ev = evaluateBeat(beatTime, lastBeat);
 
           if (ev.anchor) {
