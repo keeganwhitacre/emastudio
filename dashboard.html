@@ -133,6 +133,75 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }
+/* ── PAT View Layout ─────────────────────────────────────────────────── */
+#view-pat { flex-direction: column; gap: 20px; }
+ 
+#pat-aggregate,
+#pat-per-participant {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1;
+}
+ 
+.pat-empty-inner {
+  color: var(--fg-3);
+  font-size: 13px;
+  text-align: center;
+  padding: 60px 0;
+}
+ 
+/* ── Stat rows inside Rayleigh card ──────────────────────────────────── */
+.pat-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  gap: 12px;
+}
+.pat-stat-label {
+  font-size: 11px;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.pat-stat-val {
+  font-size: 14px;
+  color: var(--fg);
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+.pat-sig {
+  color: var(--green, #3fb950);
+}
+ 
+/* ── Standalone import button in empty state ─────────────────────────── */
+.pat-standalone-import {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-1);
+}
+.pat-standalone-import p {
+  font-size: 12px;
+  color: var(--fg-3);
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.5;
+}
+ 
+/* ── accent-rgb CSS var shim (used by PATView for rgba() calls) ───────── */
+/* If not already defined in studio.css, derive from accent. PATView falls
+   back to hardcoded '232,113,106' if this is missing — no breakage. */
+:root[data-theme="dark"]  { --accent-rgb: 232, 113, 106; }
+:root[data-theme="light"] { --accent-rgb: 210, 75, 68; }
 </style>
 </head>
 <body>
@@ -172,6 +241,19 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
       <button class="tab-btn" data-target="view-signals">Signals & Noise</button>
       <button class="tab-btn" data-target="view-participants">Participants</button>
       <button class="tab-btn" data-target="view-content">Items</button>
+      <button class="tab-btn" data-target="view-pat">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round"
+            width="11" height="11" style="margin-right:4px;vertical-align:-1px">
+          <circle cx="8" cy="8" r="6.5"/>
+          <line x1="8" y1="1.5" x2="8" y2="4"/>
+          <line x1="8" y1="12" x2="8" y2="14.5"/>
+          <line x1="1.5" y1="8" x2="4" y2="8"/>
+          <line x1="12" y1="8" x2="14.5" y2="8"/>
+          <line x1="8" y1="8" x2="11" y2="5.5"/>
+        </svg>
+        PAT
+      </button>
     </nav>
     <div class="topbar-actions">
       <button class="btn-ghost" id="theme-toggle" title="Toggle Light/Dark Mode">
@@ -416,6 +498,28 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
   <div class="q-stat-grid" id="content-cards"></div>
 </div>
 
+
+<div id="view-pat" class="dashboard-view">
+  <div id="pat-aggregate" style="display:flex;flex-direction:column;gap:20px">
+    <div class="pat-empty-inner">Import data to see PAT results.</div>
+  </div>
+  <div id="pat-per-participant" style="display:none;flex-direction:column;gap:20px">
+    <div class="pat-empty-inner">Import data to see PAT results.</div>
+  </div>
+</div>
+ 
+  <!-- Aggregate sub-view -->
+  <div id="pat-aggregate" style="display:flex;flex-direction:column;gap:20px">
+    <div class="pat-empty-inner">Loading…</div>
+  </div>
+ 
+  <!-- Per-participant sub-view -->
+  <div id="pat-per-participant" style="display:none;flex-direction:column;gap:20px">
+    <div class="pat-empty-inner">Loading…</div>
+  </div>
+ 
+</div>
+
   </main>
 </div>
 
@@ -437,5 +541,74 @@ tr:hover td { background: var(--bg-2); color: var(--fg); cursor: default; }
     });
   }
 </script>
+
+<script src="js/dashboard/pat-view.js"></script>
+<script>
+// All wiring deferred to DOMContentLoaded so AppUI is guaranteed to exist.
+document.addEventListener('DOMContentLoaded', function () {
+ 
+  // ── 1. Wrap AppUI.refreshData ───────────────────────────────────────────
+  // AppUI is defined in dashboard.js which loads before this script, but
+  // DOMContentLoaded ensures all scripts have executed first.
+  if (typeof AppUI !== 'undefined' && typeof AppUI.refreshData === 'function') {
+    const _origRefresh = AppUI.refreshData.bind(AppUI);
+    AppUI.refreshData = function (...args) {
+      _origRefresh(...args);
+      // Only render if PAT tab is currently active — otherwise render() is
+      // called when the tab is clicked (see handler below).
+      try {
+        if (document.getElementById('view-pat')?.classList.contains('active')) {
+          PATView.render();
+        }
+      } catch (e) { console.warn('[PAT] render error:', e); }
+    };
+  } else {
+    console.warn('[PAT] AppUI not found — refreshData patch skipped.');
+  }
+ 
+  // ── 2. PAT tab click → render ───────────────────────────────────────────
+  // The existing dashboard.js tab handler already adds 'active' to view-pat
+  // before our handler fires (same element, listeners fire in registration
+  // order, dashboard.js registered first at init() time).
+  const patTabBtn = document.querySelector('.topbar-tabs .tab-btn[data-target="view-pat"]');
+  if (patTabBtn) {
+    patTabBtn.addEventListener('click', function () {
+      // Small timeout ensures the active class swap from dashboard.js has
+      // completed before render() checks it.
+      setTimeout(function () {
+        try { PATView.render(); } catch (e) { console.warn('[PAT] render error:', e); }
+      }, 0);
+    });
+  }
+ 
+  // ── 3. Standalone PAT JSON import ──────────────────────────────────────
+  // Kept here for completeness if you add the standalone import button.
+  const standaloneInput = document.getElementById('pat-standalone-input');
+  if (standaloneInput) {
+    standaloneInput.addEventListener('change', function (e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (ev) {
+        const ok = PATView.ingestStandalonePAT(ev.target.result);
+        if (ok) {
+          AppUI.refreshData();
+          document.querySelectorAll('.topbar-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.dashboard-view').forEach(v => v.classList.remove('active'));
+          patTabBtn?.classList.add('active');
+          document.getElementById('view-pat')?.classList.add('active');
+          try { PATView.render(); } catch (e) {}
+        } else {
+          alert('Could not parse PAT JSON.');
+        }
+        e.target.value = '';
+      };
+      reader.readAsText(file);
+    });
+  }
+ 
+});
+</script>
+
 </body>
 </html>

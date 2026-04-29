@@ -438,7 +438,103 @@ const ePAT = (function() {
   async function wrapTrial() {
     currentTrialIndex++;
     if (currentTrialIndex >= NUM_TRIALS) {
-      if (core) { trialDetectorRunning = false; await core.BeatDetector.stop(); core.WakeLockCtrl.release(); }
+      if (core) {
+        trialDetectorRunning = false;
+        await core.BeatDetector.stop();
+        core.WakeLockCtrl.release();
+      }
+ 
+      // ── Consolidate raw entries into epat_response envelope ──────────────
+      // Pull the baseline and all trial entries that belong to this ePAT run.
+      // We identify them by type rather than by index so that sessions with
+      // multiple task phases (future-proofing) don't accidentally scoop up
+      // entries from a prior run. In practice, within a single session there
+      // will only ever be one set.
+      const rawEntries  = sessionData.data.filter(e => e && (e.type === 'baseline' || e.type === 'trial'));
+      const baseline    = rawEntries.find(e => e.type === 'baseline') || null;
+      const trialObjs   = rawEntries.filter(e => e.type === 'trial' && !e.isPractice);
+      const practiceObjs= rawEntries.filter(e => e.type === 'trial' &&  e.isPractice);
+ 
+      // Derive a session-level median RR from the baseline recordedHR array.
+      // Falls back to 800 ms (75 BPM) if baseline is absent or HR is garbage.
+      function medianRR(hrArr) {
+        if (!hrArr || !hrArr.length) return 800;
+        const valid = hrArr.filter(v => v > 30 && v < 220);
+        if (!valid.length) return 800;
+        const sorted = [...valid].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        const bpm = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+        return Math.round(60000 / bpm);
+      }
+      const sessionRR = medianRR(baseline?.recordedHR);
+ 
+      // Convert a trial's visualOffset (radians) to phase_ms.
+      // visualOffset is the knob position scaled to [-π, π], where the full
+      // range maps to one RR interval. So phase_ms = (visualOffset / π) * (RR/2).
+      // Equivalently: phase_ms = visualOffset * RR / (2π).
+      // We wrap to [-RR/2, +RR/2] so early and late are symmetric around the peak.
+      function offsetToMs(visualOffset, rrMs) {
+        const raw = (visualOffset / (2 * Math.PI)) * rrMs;
+        // Wrap to ±(RR/2)
+        const half = rrMs / 2;
+        return ((raw % rrMs) + rrMs + half) % rrMs - half;
+      }
+ 
+      // Build the normalised trial array. Each entry keeps all original fields
+      // and adds `phase_ms` and `rr_ms` for downstream consumers.
+      function buildTrialEntry(t) {
+        // Per-trial RR: prefer the trial's own recordedHR, fall back to session.
+        const trialRR = medianRR(t.recordedHR) || sessionRR;
+        const phase_ms = typeof t.visualOffset === 'number'
+          ? offsetToMs(t.visualOffset, trialRR)
+          : null;
+        // sqi: use final SQI value from qualitySummary if present
+        const sqi = t.qualitySummary?.sqiFinalValue ?? null;
+        return { ...t, phase_ms, rr_ms: trialRR, sqi };
+      }
+ 
+      const normTrials = trialObjs.map(buildTrialEntry);
+ 
+      // Summary block — mirrors the shape described in readme.html JSON schema.
+      const phaseMsArr    = normTrials.map(t => t.phase_ms).filter(v => v !== null);
+      const absArr        = phaseMsArr.map(Math.abs);
+      const meanAbsPhase  = absArr.length ? Math.round(absArr.reduce((a, b) => a + b, 0) / absArr.length) : null;
+      const confArr       = normTrials.map(t => t.confidence).filter(v => typeof v === 'number' && v >= 0);
+      const meanConf      = confArr.length ? +(confArr.reduce((a, b) => a + b, 0) / confArr.length).toFixed(2) : null;
+      const sqiArr        = normTrials.map(t => t.sqi).filter(v => v !== null);
+      const meanSqi       = sqiArr.length ? +(sqiArr.reduce((a, b) => a + b, 0) / sqiArr.length).toFixed(4) : null;
+ 
+      const summary = {
+        valid_trials:       normTrials.length,
+        practice_trials:    practiceObjs.length,
+        mean_abs_phase_ms:  meanAbsPhase,
+        mean_confidence:    meanConf,
+        mean_sqi:           meanSqi,
+        session_rr_ms:      sessionRR,
+        baseline_beats:     baseline?.totalBeats ?? null,
+        baseline_sqi:       baseline?.finalSqi   ?? null,
+      };
+ 
+      const ePATEntry = {
+        type:           'epat_response',
+        startedAt:      baseline?.recordedAt ?? null,    // set if baseline stamps it; else null
+        trials:         normTrials,
+        practices:      practiceObjs.map(buildTrialEntry),
+        baseline:       baseline,
+        summary,
+      };
+ 
+      // Remove the raw entries and splice in the envelope at the position
+      // where the first raw entry sat — preserves order relative to EMA blocks.
+      const firstRawIdx = sessionData.data.findIndex(e => e && (e.type === 'baseline' || e.type === 'trial'));
+      sessionData.data = sessionData.data.filter(e => e && e.type !== 'baseline' && e.type !== 'trial');
+      if (firstRawIdx >= 0 && firstRawIdx <= sessionData.data.length) {
+        sessionData.data.splice(firstRawIdx, 0, ePATEntry);
+      } else {
+        sessionData.data.push(ePATEntry);
+      }
+      // ─────────────────────────────────────────────────────────────────────
+ 
       advancePhase();
     } else {
       startTrial();

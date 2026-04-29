@@ -127,15 +127,18 @@ const DataParser = {
       const latencyMs = 0; 
   
       return {
-        participantId: json.participantId || 'Unknown',
-        day: parseInt(json.day || 1, 10),
-        sessionType: json.type || 'unknown',
-        durationMs: durationMs > 0 ? durationMs : 0,
-        latencyMs: latencyMs,
-        isCompleted: json.status === "complete", 
-        isNoise: durationMs < 30000, // Speeding detection (<30s for a whole session)
-        data: json.data || []
-      };
+      participantId: json.participantId || 'Unknown',
+      sessionId:     json.sessionId     || '',
+      startedAt:     json.startedAt     || null,
+      completedAt:   json.completedAt   || null,
+      day: parseInt(json.day || 1, 10),
+      sessionType: json.type || 'unknown',
+      durationMs: durationMs > 0 ? durationMs : 0,
+      latencyMs: latencyMs,
+      isCompleted: json.status === "complete",
+      isNoise: durationMs < 30000,
+      data: json.data || []
+    };
     },
   
     /**
