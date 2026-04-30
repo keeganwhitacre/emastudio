@@ -1350,10 +1350,12 @@
             <li><strong>Required:</strong> blocks advancement until answered.</li>
             <li><strong>Skip Logic:</strong> compound AND/OR conditions on any prior question. Operators:
               <code>eq, neq, gt, gte, lt, lte, includes</code>. When a condition evaluates false, the question is
-              silently skipped and not recorded.</li>
+              silently skipped and not recorded.
+            </li>
             <li><strong>Response piping:</strong> insert <code>{{q_id}}</code> in a later question's text to substitute
               the participant's prior answer. Useful for contextualizing follow-ups ("You said your mood was
-              <code>{{q1}}</code>. What was the cause?").</li>
+              <code>{{q1}}</code>. What was the cause?").
+            </li>
           </ul>
 
           <details>
@@ -1388,7 +1390,8 @@
             <li><strong>Study length:</strong> 1–365 days.</li>
             <li><strong>Days of week:</strong> restrict to weekdays only, etc.</li>
             <li><strong>Windows:</strong> each has an ID, a display label, and a start/end time. The ID (e.g.
-              <code>morning</code>) is what becomes the <code>session=</code> URL parameter.</li>
+              <code>morning</code>) is what becomes the <code>session=</code> URL parameter.
+            </li>
           </ul>
 
           <h3>Phase sequence</h3>
@@ -1511,7 +1514,8 @@
             <li>Go to <strong>Settings → Pages</strong>. Under "Source," choose <strong>main branch, root
                 folder</strong>.</li>
             <li>Wait a minute. Your study is now live at
-              <code>https://&lt;your-username&gt;.github.io/my-ema-study/</code>.</li>
+              <code>https://&lt;your-username&gt;.github.io/my-ema-study/</code>.
+            </li>
           </ol>
 
           <p>That URL is the base you give to the Builder's Deployment tab to generate participant links. You're done.
@@ -1704,7 +1708,8 @@ git push -u origin main
 
           <h2 id="csv-schema">CSV Schema (Dashboard export)</h2>
           <p>When you use the <strong>Export Master CSV</strong> button in the Dashboard, you get one row per
-            <code>(session, question)</code> pair in long format. The columns:</p>
+            <code>(session, question)</code> pair in long format. The columns:
+          </p>
 
           <table>
             <thead>
@@ -1774,7 +1779,8 @@ git push -u origin main
               <tr>
                 <td><code>response_value</code></td>
                 <td>The raw response, serialized (checkbox as <code>a;b;c</code>, Affect Grid as
-                  <code>valence;arousal</code>).</td>
+                  <code>valence;arousal</code>).
+                </td>
               </tr>
               <tr>
                 <td><code>response_numeric</code></td>
@@ -1878,14 +1884,16 @@ affect &lt;- df |&gt;
               you're using the <a href="#webhook-google">Google Apps Script webhook recipe</a>, your sheet has a
               <code>Raw JSON</code> column holding each session's payload. Export the sheet as <code>.csv</code> (File →
               Download → CSV) and import it alongside your <code>config.json</code>. The parser reads each row's
-              <code>Raw JSON</code> cell as a full session payload.</li>
+              <code>Raw JSON</code> cell as a full session payload.
+            </li>
           </ul>
 
           <div class="docs-callout">
             <div class="docs-callout-content">
               <p><strong>Config caching.</strong> After your first successful import the Dashboard caches your
                 <code>config.json</code> in browser storage. On subsequent visits you only need to drop in the data
-                file(s) — the config is remembered. Clearing site data resets this.</p>
+                file(s) — the config is remembered. Clearing site data resets this.
+              </p>
             </div>
           </div>
 
@@ -1943,33 +1951,153 @@ affect &lt;- df |&gt;
           <details>
             <summary>How the PPG pipeline works (click to expand)</summary>
             <div class="details-body">
-              <p>The runtime's <code>ePATCore</code> module handles PPG end-to-end. In brief:</p>
+              <p>The runtime's <code>ePATCore</code> module handles PPG end-to-end. The current pipeline is the v5
+                architecture; an engineering-level deep-dive of what changed since v4 is in the next collapsible. In
+                brief:</p>
               <ol>
-                <li><strong>Camera acquisition.</strong> <code>getUserMedia</code> requests the rear camera with the
-                  torch constraint. A hidden <code>&lt;video&gt;</code> element receives the stream.</li>
-                <li><strong>Sampling.</strong> A hidden <code>&lt;canvas&gt;</code> draws each video frame at ~30 Hz,
-                  averaging pixel intensity (primarily the red channel) over a central region of interest. This produces
-                  a 1D time series of blood-volume-driven reflectance change.</li>
-                <li><strong>Filtering.</strong> The raw signal is high-pass filtered to remove slow drift (respiration,
-                  finger micro-shifts) and low-pass filtered to remove high-frequency sensor noise, leaving the cardiac
-                  band (roughly 0.7–3 Hz, i.e. 40–180 BPM).</li>
-                <li><strong>Signal-quality index (SQI).</strong> Each sliding window yields a perfusion-index estimate.
-                  The <code>sqi_threshold</code> setting (default 0.3) is the floor below which a trial/capture is
-                  rejected. This is what the Sensor Warning overlay enforces — if the finger lifts or lighting changes,
-                  SQI drops and the warning reappears.</li>
-                <li><strong>Beat detection.</strong> Peaks are identified in the filtered signal using a JavaScript port
-                  of the <strong>WABP algorithm</strong> (Zong et al., 2003) — originally designed for arterial blood
-                  pressure onset detection, which transfers cleanly to the PPG domain. Inter-beat intervals (IBIs) are
-                  the ms-differences between successive detected onsets. The camera acquisition approach follows the
-                  pattern established in Richard Moore's open-source web heart-rate-monitor. Full citations in <a
-                    href="#acknowledgments">Acknowledgments</a>.</li>
-                <li><strong>Output.</strong> BPM is <code>60000 / median(IBIs)</code> over the capture window. Stored
-                  alongside the full IBI series for downstream HRV analysis, plus the mean SQI as a quality annotation.
+                <li><strong>Camera acquisition.</strong> <code>getUserMedia</code> requests the rear camera at
+                  30&nbsp;fps (with 60&nbsp;fps and "ideal 30" fallbacks) and the torch is engaged via
+                  <code>applyConstraints({ torch: true })</code>. A hidden <code>&lt;video&gt;</code> element receives
+                  the stream; cameras labeled "front", "facetime", "dual", "triple", "ultra", or "tele" are
+                  deprioritised so the chosen camera is the standard rear sensor.
+                </li>
+                <li><strong>Sampling.</strong> A hidden <code>&lt;canvas&gt;</code> draws each video frame and averages
+                  pixel intensity over a central region of interest. <em>Both</em> the red and green channels are
+                  extracted and tracked separately — the red channel dominates with the torch on, but the green channel
+                  is kept available as a backup. Sampling is locked to the camera's actual paint rate (typically
+                  30&nbsp;Hz); a variable-frame-rate deduplication step prevents the 60/120&nbsp;Hz display refresh from
+                  being mistaken for new data.</li>
+
+                <li><strong>Filtering.</strong> Each channel is bandpass-filtered with a pair of cascaded 2nd-order
+                  Butterworth biquad filters: a high-pass at 0.67&nbsp;Hz to remove respiratory drift and finger
+                  micro-shifts, and a low-pass at 3.33&nbsp;Hz to remove high-frequency sensor noise. The pass band
+                  (0.67–3.33&nbsp;Hz, i.e. 40–200&nbsp;BPM) covers the cardiac range. The biquads use Butterworth Q
+                  (1/√2) and standard digital biquad coefficients computed at the actual sample rate.</li>
+
+                <li><strong>Signal-quality index (SQI).</strong> SQI is computed every 1&nbsp;s on a 2&nbsp;s rolling
+                  window <em>of the filtered signal</em> as the peak-to-peak amplitude in the cardiac band. This
+                  directly measures the AC pulse amplitude that beat detection actually requires, and is
+                  scale-comparable across the red and green channels. The runtime exposes per-channel SQI plus the
+                  active channel via <code>onSqiUpdateCb(sqiRed, sqiGreen, activeChannel)</code>. The "Sensor Warning"
+                  overlay enforces the floor — if SQI on the active channel drops below the warning threshold, the
+                  warning reappears and the participant is prompted to reposition their finger.</li>
+
+                <li><strong>Channel selection and failover.</strong> Both channels run a full filter + beat-detector
+                  pipeline continuously. After a 4.5&nbsp;s settling window following finger detection (which lets the
+                  high-pass transient ring down — its time constant is ~0.24&nbsp;s, so 5τ ≈ 1.2&nbsp;s with comfortable
+                  margin), per-channel baseline amplitudes are locked. The active channel is initially red. If the
+                  active channel's amplitude drops below 40% of its baseline AND the backup channel's amplitude exceeds
+                  25% of its own baseline, sustained for two consecutive 1&nbsp;s checks (anti-thrash), the runtime
+                  switches to the backup. Because both detectors are always running, the new active channel has already
+                  learned its thresholds — there is no cold-start blackout on switch. This makes the system robust to
+                  drift in finger pressure, ambient lighting changes, and skin tone differences that affect torch
+                  saturation differently across channels.</li>
+
+                <li><strong>Beat detection.</strong> Each channel feeds an independent instance of a JavaScript port of
+                  the <strong>WABP</strong> (Waveform Analysis for Blood Pressure) algorithm — Zong, Heldt, Moody &amp;
+                  Mark (2003) — adapted from arterial pressure to camera PPG. WABP is well-suited because both signals
+                  share an upstroke-dominant morphology. After a candidate onset is detected, a <strong>quadratic
+                    interpolation</strong> step refines the peak position in the slope-energy curve to sub-frame
+                  resolution. The camera is still 30&nbsp;Hz, but onset times are no longer quantised to ~33&nbsp;ms
+                  steps — IBIs are computed at finer resolution, which matters substantially for HRV-style analyses
+                  where ~30&nbsp;ms quantisation noise is large relative to physiological variability.</li>
+
+                <li><strong>Dicrotic-notch rejection.</strong> PPG morphology contains a secondary peak (the dicrotic
+                  notch) per cardiac cycle that can be falsely detected as a beat, inflating HR by up to a factor of two
+                  when it happens systematically. The runtime maintains a running median of recent inter-beat intervals;
+                  candidate beats whose interval is less than 60% of the expected period are rejected as dicrotic.
+                  Rejection counts are exposed in <code>diagnostics.dicroticRejects</code> for quality auditing.</li>
+
+                <li><strong>Output.</strong> Each accepted beat is emitted via
+                  <code>onBeatCb({ instantBPM, averageBPM, instantPeriod, averagePeriod, time })</code>.
+                  <code>averageBPM</code> is the median of the last 10 inter-beat periods; this median is used in
+                  preference to the running mean because it is robust to the occasional missed or extra beat that any
+                  peak detector will produce in real-world capture conditions. For HR-question outputs, BPM is reported
+                  as <code>60 000 / median(IBIs)</code> over the capture window. The full IBI series is stored alongside
+                  the BPM value for downstream HRV analysis, plus the mean SQI as a quality annotation.
                 </li>
               </ol>
-              <p>This is not a medical-grade measurement. For research use where the construct is "participant's
+
+              <p>This is not a medical-grade measurement. For research where the construct is "the participant's
                 approximate HR at this moment under ecological conditions", the technique is well-established in the
-                digital biomarker literature. For clinical interpretation, don't.</p>
+                digital biomarker literature, and the pipeline above is materially closer to PhysioNet-grade processing
+                than the typical smartphone-PPG demo.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>v5 architecture: dual-channel + signal-quality (engineering deep-dive)</summary>
+            <div class="details-body">
+              <p>This section documents <em>what changed</em> in the signal pipeline between v4 and the current v5
+                architecture, for researchers replicating the methods or auditing the code. None of this is necessary to
+                <em>use</em> EMA Forge — it's here so reviewers and replicators have an accurate target.</p>
+
+              <h4>Why dual-channel</h4>
+              <p>A single-channel PPG pipeline has a fundamental fragility: the channel's signal-to-noise depends on the
+                interaction of skin tone, finger pressure, ambient light, and torch brightness in ways that drift across
+                a session. v4 used the red channel exclusively; in practice this worked well in most cases but produced
+                occasional sessions where the red channel saturated (torch + light skin + heavy pressure) or
+                under-illuminated (torch + dark skin + light contact), and the entire session became unscoreable. v5
+                keeps red as the default but tracks the green channel in parallel and switches if conditions warrant.
+                Importantly, the green pipeline is never "off" — both channels run the full filter and beat detector
+                continuously, so the backup channel has already adapted its thresholds at the moment a switch fires.</p>
+
+              <h4>Why the SQI metric changed</h4>
+              <p>v4 computed SQI as a perfusion-index <code>(max − min) / mean</code> on the <em>raw</em> camera
+                channel. This had two pathologies:</p>
+              <ul>
+                <li>During finger placement, the raw signal ramps from ambient (~0.10) to finger-on (~0.40) inside the
+                  SQI window. <code>(max − min) / mean</code> over that ramp is dominated by the DC step, not the AC
+                  pulse — green could routinely score 14+ versus red's 0.6, making channel selection meaningless.</li>
+                <li>The threshold was calibrated against torch-saturated red (where raw PI is ~0.01). Green's baseline
+                  raw PI is ~0.35. Any threshold tuned for one channel's operating point is wrong for the other.</li>
+              </ul>
+              <p>v5 SQI is the peak-to-peak amplitude of the <em>filtered</em> signal over a 2&nbsp;s rolling window.
+                Because the bandpass strips the DC component, this metric measures the actual AC pulse amplitude — which
+                is what WABP cares about — and is scale-comparable across channels because both feed the same filter.
+                The raw perfusion index is still computed and exposed in <code>diagnostics</code> for callers that want
+                it, but no switching decision uses it.</p>
+
+              <h4>Calibration state machine</h4>
+              <p>After a finger-on transition, the calibration state machine moves from <code>'settling'</code> →
+                <code>'locked'</code>. During settling (4.5&nbsp;s), no channel switching can occur and no beats are
+                emitted — this gives the high-pass filter time to ring down past its transient. At lock time, each
+                channel's current filtered peak-to-peak becomes its baseline. From that point onward, failover
+                thresholds are expressed as fractions of each channel's own baseline (40% drop on active, 25% viability
+                on backup), which makes them dimensionless and channel-agnostic. After a switch, the new active
+                channel's baseline is updated to its current value, so subsequent failovers in either direction work
+                symmetrically.</p>
+
+              <h4>Sub-frame interpolation</h4>
+              <p>WABP returns the index of the slope-energy local maximum that triggered the detection. With a
+                30&nbsp;Hz camera, naive use of this index quantises beat times to ~33.3&nbsp;ms. v5 fits a quadratic to
+                the three samples around the local maximum and computes the fractional offset of the true peak:
+                <code>Δ = ½ · (s₀ − s₂) / (s₀ − 2s₁ + s₂)</code>. The reported <code>framesAgo</code> is then
+                <code>integer_framesAgo − Δ</code>, so beat times resolve at finer than the frame interval. The camera
+                sample rate has not changed; the beat-time estimate just no longer has 30&nbsp;ms quantisation noise on
+                top of the underlying physiological variability. For downstream HRV use this is meaningful — RMSSD on
+                quantised IBIs is biased upward.</p>
+
+              <h4>Dicrotic-notch rejection</h4>
+              <p>The dicrotic notch is the mid-diastolic secondary peak in the PPG waveform. WABP's onset criterion can
+                fire on it under certain morphologies, generating a phantom beat with an IBI roughly half the true
+                value. v5 maintains a 10-element running buffer of recent accepted IBIs; once it has at least 3 samples,
+                candidate beats whose interval to the previous accepted beat is less than 60% of the median expected
+                period are rejected as dicrotic and counted in <code>dicroticRejectCount</code>. The 60% threshold is
+                conservative — physiological IBI variability (HRV) under normal conditions is well below that ratio.</p>
+
+              <h4>API contract notes</h4>
+              <ul>
+                <li><code>BeatDetector.setCallbacks({...})</code> swaps callbacks <em>without</em> resetting filter or
+                  detector state. This is what allows ePAT and HCT to keep the camera session alive across baseline →
+                  trial transitions without a cold-start.</li>
+                <li><code>BeatDetector.stop()</code> tears down the camera, releases the torch, and resets all internal
+                  state. After this, the next call must be <code>start()</code>.</li>
+                <li>All beat-time stamps use <code>performance.now()</code>, which is monotonic and unaffected by
+                  wall-clock changes.</li>
+                <li><code>onSqiUpdateCb(sqiRed, sqiGreen, activeChannel)</code> reports both channels every 1&nbsp;s;
+                  the active channel string is one of <code>'red'</code> or <code>'green'</code>.</li>
+              </ul>
             </div>
           </details>
 
@@ -2022,12 +2150,14 @@ affect &lt;- df |&gt;
                 <li><strong>Retry budget.</strong> <code>retry_budget</code> (default 30) is the maximum number of
                   attempts. A trial can fail for low SQI, excessive movement, or participant cancelation. Once
                   <em>valid</em> trials hits the target, the task ends; if the budget exhausts first, the task ends with
-                  whatever valid trials were collected.</li>
+                  whatever valid trials were collected.
+                </li>
               </ol>
               <p><strong>High-precision timing.</strong> Audio stimulus scheduling uses the Web Audio API's
                 <code>AudioContext</code> (not <code>setTimeout</code>), which gives sample-accurate timing across
                 browsers. This is the difference between a task that has &lt;2 ms jitter and one that has ~20 ms jitter,
-                which matters a great deal when your DV is measured in milliseconds.</p>
+                which matters a great deal when your DV is measured in milliseconds.
+              </p>
             </div>
           </details>
 
@@ -2227,7 +2357,8 @@ affect &lt;- df |&gt;
             </li>
             <li><strong>Camera / microphone access</strong> (HR, ePAT) is handled entirely through the browser's
               <code>getUserMedia</code> permission prompt. The media stream never leaves the device; only the derived
-              signal (BPM, IBIs, phase offsets) is stored.</li>
+              signal (BPM, IBIs, phase offsets) is stored.
+            </li>
             <li><strong>Consent is captured</strong> as a boolean plus a timestamp in the onboarding JSON payload. The
               full consent text as the participant saw it is logged alongside.</li>
           </ol>
@@ -2352,7 +2483,8 @@ affect &lt;- df |&gt;
                 response data to an endpoint of your choosing. The core "serverless" guarantee (data stays on-device) is
                 <em>opt-in</em> to preserve. If your IRB protocol specifies manual return, leave the field blank. If
                 your IRB approves direct electronic return to a specific institutional endpoint, webhooks make the data
-                pipeline hands-off for participants.</p>
+                pipeline hands-off for participants.
+              </p>
             </div>
           </div>
 
@@ -2412,7 +2544,8 @@ affect &lt;- df |&gt;
                 <li>Delete the placeholder <code>function myFunction() {}</code> and paste the script below.</li>
                 <li>Click the disk icon to save. It will ask you to name the project — anything works.</li>
                 <li>Click <strong>Deploy → New deployment</strong>. In the gear next to "Select type," choose
-                  <strong>Web app</strong>.</li>
+                  <strong>Web app</strong>.
+                </li>
                 <li>Set <strong>Execute as:</strong> <em>Me</em>, and <strong>Who has access:</strong> <em>Anyone</em>.
                   (This is necessary — the exported study has no Google credentials. Your endpoint URL is essentially
                   the credential; treat it as a secret.)</li>
@@ -2459,7 +2592,8 @@ affect &lt;- df |&gt;
               <p>Every completed session becomes one row with the full session JSON in column E. For day-to-day
                 monitoring, use Sheets' built-in filters on the Participant ID / Day / Window columns. For actual
                 analysis, download the sheet as CSV and feed it to the Dashboard or process column E directly in R (e.g.
-                <code>purrr::map(json_col, jsonlite::fromJSON)</code>).</p>
+                <code>purrr::map(json_col, jsonlite::fromJSON)</code>).
+              </p>
 
               <p><strong>When you edit the script,</strong> you must redeploy — either create a new deployment (new
                 URL), or use <strong>Manage deployments → Edit → New version</strong> (keeps the same URL). The latter
@@ -2511,14 +2645,16 @@ affect &lt;- df |&gt;
           <ul>
             <li><strong>Your endpoint URL is effectively a credential.</strong> Anyone who has it can post synthetic
               data into your dataset. For serious studies, add a shared secret — have the study POST an
-              <code>?auth=...</code> query parameter that the script checks, rotate it if leaked.</li>
+              <code>?auth=...</code> query parameter that the script checks, rotate it if leaked.
+            </li>
             <li><strong>Google Apps Script rate limits exist</strong> but are generous for EMA-scale traffic. Expect no
               issues below ~1000 participant-sessions per day. Beyond that, batch or switch to a dedicated endpoint.
             </li>
             <li><strong>Apps Script responses don't always reach the client cleanly.</strong> The runtime treats any
               <code>response.ok</code> as success; if Apps Script happens to return a redirect to a final content URL,
               the fetch still counts as a success. Your row will appear in the sheet regardless. This is fine for the
-              "did it save?" question; if you need byte-exact response parsing, use a real endpoint.</li>
+              "did it save?" question; if you need byte-exact response parsing, use a real endpoint.
+            </li>
             <li><strong>If you change the webhook URL mid-study,</strong> participants who cached the old exported HTML
               will continue to post to the old URL until they clear site data or you push a new export. Make webhook
               changes at export boundaries, not mid-enrollment.</li>
@@ -2556,9 +2692,11 @@ affect &lt;- df |&gt;
 
           <ol>
             <li>In the Builder's Deployment tab, set the <em>Hosted URL</em> to where your exported study lives (e.g.
-              <code>https://your-lab.github.io/study/</code>).</li>
+              <code>https://your-lab.github.io/study/</code>).
+            </li>
             <li>Click <strong>Export Twilio Dispatcher (.gs)</strong>. You'll get a file named like
-              <code>my-study-twilio-dispatcher.gs</code>.</li>
+              <code>my-study-twilio-dispatcher.gs</code>.
+            </li>
             <li>Open <a href="https://sheets.google.com" target="_blank" rel="noopener">sheets.google.com</a> and create
               a blank spreadsheet. <strong>Extensions → Apps Script.</strong></li>
             <li>Delete the placeholder <code>myFunction</code>. Paste the entire contents of the <code>.gs</code> file.
@@ -2569,7 +2707,8 @@ affect &lt;- df |&gt;
               schema below, plus a hidden <code>_Dispatch_Log</code> sheet for audit and dedupe.</li>
             <li>Fill in the Roster. One row per participant.</li>
             <li>Click <strong>2. Start Automation (every 15 min)</strong>. A time-based trigger is installed that runs
-              <code>dispatchPrompts</code> every fifteen minutes.</li>
+              <code>dispatchPrompts</code> every fifteen minutes.
+            </li>
           </ol>
 
           <h3 id="twilio-roster-schema">Roster schema</h3>
@@ -2595,7 +2734,8 @@ affect &lt;- df |&gt;
                 <td><code>Timezone</code></td>
                 <td>IANA zone string (<code>America/Los_Angeles</code>, <code>Europe/London</code>,
                   <code>Asia/Tokyo</code>). <strong>Not a numeric offset</strong> — DST transitions would silently break
-                  a fixed-offset scheme twice a year.</td>
+                  a fixed-offset scheme twice a year.
+                </td>
               </tr>
               <tr>
                 <td><code>Start_Date</code></td>
@@ -2610,7 +2750,8 @@ affect &lt;- df |&gt;
               </tr>
               <tr>
                 <td><code>Current_Day</code>, <code>Next_Window</code>, <code>Next_Ping_ISO</code>,
-                  <code>Last_Sent_ISO</code></td>
+                  <code>Last_Sent_ISO</code>
+                </td>
                 <td>Managed by the dispatcher. Don't write to these manually unless you're intentionally rescheduling.
                 </td>
               </tr>
@@ -2641,7 +2782,8 @@ affect &lt;- df |&gt;
             <li>Writes outcomes to the hidden <code>_Dispatch_Log</code> sheet with a <code>sent:HTTPcode</code> or
               <code>fail:HTTPcode:message</code> marker. Failures leave the ping scheduled for retry on the next tick;
               successes are recorded so a subsequent tick can't send a duplicate even if the sheet-write that clears
-              <code>Next_Ping_ISO</code> somehow failed mid-operation.</li>
+              <code>Next_Ping_ISO</code> somehow failed mid-operation.
+            </li>
           </ol>
 
           <p>The dedupe key is <code>(Participant_ID, Day, Window_ID)</code> scoped to today in the participant's
@@ -2779,7 +2921,8 @@ affect &lt;- df |&gt;
               <p style="margin-top:12px;"><strong>Key boundary:</strong> <code>js/</code> powers the Builder/Dashboard
                 (what the researcher interacts with). <code>templates/</code> is the code that gets stitched into the
                 <em>participant's</em> study by <code>js/export.js</code>. Never edit templates hoping to change Builder
-                behavior, or vice versa.</p>
+                behavior, or vice versa.
+              </p>
             </div>
           </details>
 
@@ -2792,7 +2935,8 @@ affect &lt;- df |&gt;
               </p>
               <ol>
                 <li>Add an entry to <code>state.modules</code> in <code>js/state.js</code> with <code>id</code>,
-                  <code>label</code>, <code>desc</code>, <code>enabled</code>, and a <code>settings</code> object.</li>
+                  <code>label</code>, <code>desc</code>, <code>enabled</code>, and a <code>settings</code> object.
+                </li>
                 <li>Add a matching renderer in <code>SETTINGS_RENDERERS</code> in <code>js/tabs/tasks.js</code>.</li>
                 <li>Create a runtime module file in <code>templates/module-&lt;id&gt;.js</code> that defines a lifecycle
                   (<code>start</code>, <code>teardown</code>, <code>getData</code>) and push it into the export pipeline
@@ -2858,7 +3002,8 @@ https://github.com/keeganwhitacre/emaforge</code></pre>
           <ul>
             <li>Plans, D., Ponzo, S., Morelli, D., Cairo, M., Ring, C., Keating, C. T., Cunningham, A. C., Catmur, C.,
               Murphy, J., &amp; Bird, G. (2021). <strong>Measuring interoception: The phase adjustment task.</strong>
-              <em>Biological Psychology</em>, 165, 108171.</li>
+              <em>Biological Psychology</em>, 165, 108171.
+            </li>
             <li>Palmer, C., Murphy, J., Bird, G., et al. (2025). <strong>Refinements of the Phase Adjustment Task (PAT
                 2.0).</strong> Preprint. <a href="https://doi.org/10.31219/osf.io/4qtwv" target="_blank"
                 rel="noopener">doi:10.31219/osf.io/4qtwv</a>.</li>
