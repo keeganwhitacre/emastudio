@@ -54,22 +54,58 @@ let state = {
 
   modules: [
     {
-      id: "epat",
-      label: "ePAT",
-      desc: "Ecological Phase Adjustment Task — objective cardiac interoceptive accuracy via PPG. Requires rear camera + torch on participant device.",
-      badge: "Beta",
-      enabled: false,
-      settings: {
-        trials: 20,
-        trial_duration_sec: 30,
-        retry_budget: 30,
-        sqi_threshold: 0.3,
-        confidence_ratings: true,
-        two_phase_practice: true,
-        body_map: true
-      }
+    id: "epat",
+    label: "ePAT",
+    desc: "Ecological Phase Adjustment Task — objective cardiac interoceptive accuracy via PPG. Requires rear camera + torch on participant device.",
+    badge: "Beta",
+    enabled: false,
+    settings: {
+    trials: 20,
+    trial_duration_sec: 30,
+    retry_budget: 30,
+    sqi_threshold: 0.3,
+    confidence_ratings: true,
+    two_phase_practice: true,
+    body_map: true
     }
-  ],
+  },
+  {   
+    id: "hct",
+    label: "Heartbeat Counting Task",
+    desc: "Schandry-style mental heartbeat count across timed intervals. Reuses ePATCore for the objective beat count — requires rear camera + torch.",
+    badge: "Beta",
+    enabled: false,
+    settings: {
+    // Comma-separated list of interval durations in seconds. Schandry's
+    // classic set is [25, 35, 45, 50, 55, 100]; the reduced default below
+    // keeps within-session burden ~2 min for EMA contexts.
+    intervals: [25, 35, 45],
+    randomize_order: true,
+    include_practice: true,
+    practice_duration_sec: 15,
+    // 'count' = strict Schandry wording; 'estimate' = Brener/Ring variant
+    // where participants estimate without trying to perceive each beat.
+    // The methodological literature treats these as non-equivalent, hence
+    // the explicit toggle.
+    instruction_variant: "count",
+    // Free-form override of the default instruction text. Empty string
+    // means "use the variant default".
+    instructions: "",
+    // What the participant sees during counting:
+    //   show_timer        — elapsed numeric timer
+    //   show_progress_ring — subtle progress ring without numbers
+    // Both off = blank/minimal screen (purist).
+    show_timer: false,
+    show_progress_ring: true,
+    confidence_ratings: true,
+    body_map: true,
+    body_map_every: 4,
+    // Hard cap on retries for noise-failed intervals across the whole
+    // session. Same defensive purpose as ePAT's retry_budget.
+    retry_budget: 10
+    }
+}
+],
 
   ema: {
     randomize_questions: false,

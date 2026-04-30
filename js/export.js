@@ -13,22 +13,23 @@
 
 let templates = {
   epatCore: null, studyBase: null,
-  modOnboarding: null, modEma: null, modEpat: null
+  modOnboarding: null, modEma: null, modEpat: null, modHct: null
 };
 
 async function loadTemplates() {
-  if (!templates.epatCore)      templates.epatCore      = await fetch('templates/epat-core.js').then(r => r.text());
-  if (!templates.studyBase)     templates.studyBase     = await fetch('templates/study-base.js').then(r => r.text());
+  if (!templates.epatCore) templates.epatCore = await fetch('templates/epat-core.js').then(r => r.text());
+  if (!templates.studyBase) templates.studyBase = await fetch('templates/study-base.js').then(r => r.text());
   if (!templates.modOnboarding) templates.modOnboarding = await fetch('templates/module-onboarding.js').then(r => r.text());
-  if (!templates.modEma)        templates.modEma        = await fetch('templates/module-ema.js').then(r => r.text());
-  if (!templates.modEpat)       templates.modEpat       = await fetch('templates/module-epat.js').then(r => r.text());
+  if (!templates.modEma) templates.modEma = await fetch('templates/module-ema.js').then(r => r.text());
+  if (!templates.modEpat) templates.modEpat = await fetch('templates/module-epat.js').then(r => r.text());
+  if (!templates.modHct) templates.modHct = await fetch('templates/module-hct.js').then(r => r.text());
 }
 
 function getThemeCSS(theme, accent) {
   let css = `--accent: ${accent}; --accent-hover: ${darkenHex(accent, 20)}; --accent-red: #ff453a; --accent-green: #32d74b; --radius: 14px; --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;`;
-  if (theme === 'light')       css += ` --bg: #f9f9fb; --bg-surface: #ffffff; --bg-elevated: #f0f0f4; --border: #e0e0e5; --fg: #1c1c1e; --fg-muted: #8e8e93;`;
-  else if (theme === 'dark')   css += ` --bg: #121212; --bg-surface: #1e1e1e; --bg-elevated: #2d2d2d; --border: #3d3d3d; --fg: #e0e0e0; --fg-muted: #9e9e9e;`;
-  else                         css += ` --bg: #000000; --bg-surface: #111111; --bg-elevated: #1c1c1e; --border: #2c2c2e; --fg: #ffffff; --fg-muted: #8e8e93;`;
+  if (theme === 'light') css += ` --bg: #f9f9fb; --bg-surface: #ffffff; --bg-elevated: #f0f0f4; --border: #e0e0e5; --fg: #1c1c1e; --fg-muted: #8e8e93;`;
+  else if (theme === 'dark') css += ` --bg: #121212; --bg-surface: #1e1e1e; --bg-elevated: #2d2d2d; --border: #3d3d3d; --fg: #e0e0e0; --fg-muted: #9e9e9e;`;
+  else css += ` --bg: #000000; --bg-surface: #111111; --bg-elevated: #1c1c1e; --border: #2c2c2e; --fg: #ffffff; --fg-muted: #8e8e93;`;
   return css;
 }
 
@@ -58,15 +59,17 @@ function stitchStudyJs(cfg, { configInline, previewMode, previewSession: _ps }) 
 
   const moduleParts = [templates.modOnboarding, templates.modEma];
   if (cfg.modules?.epat) moduleParts.push(templates.modEpat);
+  if (cfg.modules?.hct) moduleParts.push(templates.modHct);
   // Heart rate capture is a question type handled inside module-ema.js.
-  // No separate module file needed — ePATCore provides BeatDetector when epat is enabled.
+  // No separate module file needed — ePATCore provides BeatDetector when
+  // any of epat/hct/hr_capture is enabled.
 
   studyJs = studyJs.replace('// {{MODULES_INJECT}}', () => moduleParts.join('\n\n'));
   return studyJs;
 }
 
 function buildHtmlShell({ cfg, themeCSS, includeEpatCore, configTag, coreTag, studyTag, cssTag }) {
-  
+
   // Dynamically generate the time inputs based on the study's actual windows
   const dynamicWindowsHtml = (cfg.ema?.scheduling?.windows || []).map(w => `
     <div class="time-row">
@@ -228,6 +231,43 @@ function buildHtmlShell({ cfg, themeCSS, includeEpatCore, configTag, coreTag, st
     <button class="btn btn-primary btn-block" id="confirm-trial-btn" disabled style="margin-top:40px;">Confirm Timing</button>
   </div>
 
+  <div class="screen" id="screen-hct-counting">
+    <div style="position:absolute;top:calc(env(safe-area-inset-top,24px) + 24px);width:100%;text-align:center;">
+      <p class="label" id="hct-interval-label" style="color:var(--fg-muted);">Interval</p>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;gap:32px;">
+      <h1 style="margin:0; font-weight:600;">Count silently</h1>
+      <p style="color:var(--fg-muted); text-align:center; max-width:280px; margin:0;">
+        Count the heartbeats you feel in your body. Don't take your pulse.
+      </p>
+      <div id="hct-counting-ring-wrap" style="display:flex; align-items:center; justify-content:center;">
+        <div class="progress-ring" style="width:160px;height:160px;position:relative;">
+          <svg viewBox="0 0 180 180">
+            <circle class="track" cx="90" cy="90" r="85"/>
+            <circle class="fill" id="hct-counting-progress-circle" cx="90" cy="90" r="85"/>
+          </svg>
+        </div>
+      </div>
+      <div id="hct-counting-timer" style="display:none; font-family:var(--font-mono); font-size:1.4rem; color:var(--fg-muted);">0:00</div>
+    </div>
+  </div>
+
+  <div class="screen" id="screen-hct-count">
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center; gap:24px;">
+      <p class="label" id="hct-count-label" style="color:var(--fg-muted); margin:0;">Interval complete</p>
+      <h1 style="margin:0;">How many heartbeats?</h1>
+      <p style="color:var(--fg-muted); text-align:center; max-width:300px; margin:0;">
+        Enter the number of heartbeats you counted during the interval. If you didn't feel any, enter 0.
+      </p>
+      <input type="number" id="hct-count-input" inputmode="numeric" min="0" max="999"
+        style="width:140px; height:88px; font-size:3rem; font-weight:700; text-align:center;
+               background:var(--bg-elevated); border:2px solid var(--border); border-radius:var(--radius);
+               color:var(--fg); outline:none; -moz-appearance:textfield;"
+        placeholder="0">
+    </div>
+    <button class="btn btn-primary btn-block" id="hct-count-submit" disabled style="margin-top:24px;">Continue</button>
+  </div>
+
   <div class="screen" id="screen-bodymap">
     <div style="flex:1;display:flex;flex-direction:column;justify-content:center;">
       <h1>Sensation</h1>
@@ -268,10 +308,10 @@ async function buildStudyHtml({ configInline, previewMode = false, previewSessio
   const runtimeCss = getRuntimeCss();
   const studyJs = stitchStudyJs(cfg, { configInline, previewMode, previewSession: _ps });
   const configTag = configInline ? `<script>window.__CONFIG__ = ${JSON.stringify(cfg)};<\/script>` : '';
-  const needsCore = cfg.modules?.epat || cfg.modules?.hr_capture;
-  const coreTag   = needsCore ? `<script>\n${templates.epatCore}\n<\/script>` : '';
-  const cssTag    = `<style>:root{${themeCSS}}${runtimeCss}</style>`;
-  const studyTag  = `<script>\n${studyJs}\n<\/script>`;
+  const needsCore = cfg.modules?.epat || cfg.modules?.hct || cfg.modules?.hr_capture;
+  const coreTag = needsCore ? `<script>\n${templates.epatCore}\n<\/script>` : '';
+  const cssTag = `<style>:root{${themeCSS}}${runtimeCss}</style>`;
+  const studyTag = `<script>\n${studyJs}\n<\/script>`;
   return buildHtmlShell({ cfg, themeCSS, includeEpatCore: !!needsCore, configTag, coreTag, studyTag, cssTag });
 }
 
@@ -282,16 +322,16 @@ async function buildStaticBundle() {
   const runtimeCss = getRuntimeCss();
   const studyJs = stitchStudyJs(cfg, { configInline: false, previewMode: false });
   const configTag = '';
-  const needsCore = cfg.modules?.epat || cfg.modules?.hr_capture;
-  const coreTag   = needsCore ? `<script src="js/epat-core.js"></script>` : '';
-  const cssTag    = `<link rel="stylesheet" href="css/study.css">`;
-  const studyTag  = `<script src="js/study.js"></script>`;
+  const needsCore = cfg.modules?.epat || cfg.modules?.hct || cfg.modules?.hr_capture;
+  const coreTag = needsCore ? `<script src="js/epat-core.js"></script>` : '';
+  const cssTag = `<link rel="stylesheet" href="css/study.css">`;
+  const studyTag = `<script src="js/study.js"></script>`;
   const html = buildHtmlShell({ cfg, themeCSS, includeEpatCore: !!needsCore, configTag, coreTag, studyTag, cssTag });
   const files = [
-    { path: 'index.html',    content: html },
-    { path: 'config.json',   content: JSON.stringify(cfg, null, 2) },
+    { path: 'index.html', content: html },
+    { path: 'config.json', content: JSON.stringify(cfg, null, 2) },
     { path: 'css/study.css', content: runtimeCss },
-    { path: 'js/study.js',   content: studyJs }
+    { path: 'js/study.js', content: studyJs }
   ];
   if (needsCore) files.push({ path: 'js/epat-core.js', content: templates.epatCore });
   files.push({ path: 'README.txt', content: `${cfg.study.name} — deploy to any static host.\nParticipants open: index.html?id=<PID>&day=<N>&session=<windowId>\n` });
@@ -302,27 +342,27 @@ function makeZip(files) {
   const enc = new TextEncoder();
   const fr = [], cr = [];
   let off = 0;
-  const ct = (() => { const t = new Uint32Array(256); for(let i=0;i<256;i++){let c=i;for(let k=0;k<8;k++)c=(c&1)?(0xedb88320^(c>>>1)):(c>>>1);t[i]=c>>>0;} return t; })();
-  const crc32 = b => { let c=0xffffffff; for(let i=0;i<b.length;i++)c=ct[(c^b[i])&0xff]^(c>>>8); return(c^0xffffffff)>>>0; };
-  const w16=(dv,p,v)=>dv.setUint16(p,v,true), w32=(dv,p,v)=>dv.setUint32(p,v,true);
+  const ct = (() => { const t = new Uint32Array(256); for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++)c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1); t[i] = c >>> 0; } return t; })();
+  const crc32 = b => { let c = 0xffffffff; for (let i = 0; i < b.length; i++)c = ct[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const w16 = (dv, p, v) => dv.setUint16(p, v, true), w32 = (dv, p, v) => dv.setUint32(p, v, true);
   files.forEach(f => {
-    const nb=enc.encode(f.path), db=enc.encode(f.content), crc=crc32(db), sz=db.length;
-    const lh=new ArrayBuffer(30), lv=new DataView(lh);
-    w32(lv,0,0x04034b50);w16(lv,4,20);w16(lv,6,0);w16(lv,8,0);w16(lv,10,0);w16(lv,12,0);
-    w32(lv,14,crc);w32(lv,18,sz);w32(lv,22,sz);w16(lv,26,nb.length);w16(lv,28,0);
-    fr.push(new Uint8Array(lh),nb,db);
-    const cd=new ArrayBuffer(46), cv=new DataView(cd);
-    w32(cv,0,0x02014b50);w16(cv,4,20);w16(cv,6,20);w16(cv,8,0);w16(cv,10,0);w16(cv,12,0);w16(cv,14,0);
-    w32(cv,16,crc);w32(cv,20,sz);w32(cv,24,sz);w16(cv,28,nb.length);w16(cv,30,0);w16(cv,32,0);
-    w16(cv,34,0);w16(cv,36,0);w32(cv,38,0);w32(cv,42,off);
-    cr.push(new Uint8Array(cd),nb);
-    off+=30+nb.length+db.length;
+    const nb = enc.encode(f.path), db = enc.encode(f.content), crc = crc32(db), sz = db.length;
+    const lh = new ArrayBuffer(30), lv = new DataView(lh);
+    w32(lv, 0, 0x04034b50); w16(lv, 4, 20); w16(lv, 6, 0); w16(lv, 8, 0); w16(lv, 10, 0); w16(lv, 12, 0);
+    w32(lv, 14, crc); w32(lv, 18, sz); w32(lv, 22, sz); w16(lv, 26, nb.length); w16(lv, 28, 0);
+    fr.push(new Uint8Array(lh), nb, db);
+    const cd = new ArrayBuffer(46), cv = new DataView(cd);
+    w32(cv, 0, 0x02014b50); w16(cv, 4, 20); w16(cv, 6, 20); w16(cv, 8, 0); w16(cv, 10, 0); w16(cv, 12, 0); w16(cv, 14, 0);
+    w32(cv, 16, crc); w32(cv, 20, sz); w32(cv, 24, sz); w16(cv, 28, nb.length); w16(cv, 30, 0); w16(cv, 32, 0);
+    w16(cv, 34, 0); w16(cv, 36, 0); w32(cv, 38, 0); w32(cv, 42, off);
+    cr.push(new Uint8Array(cd), nb);
+    off += 30 + nb.length + db.length;
   });
-  let cds=0; cr.forEach(r=>cds+=r.length);
-  const eo=new ArrayBuffer(22), ev=new DataView(eo);
-  w32(ev,0,0x06054b50);w16(ev,4,0);w16(ev,6,0);w16(ev,8,files.length);w16(ev,10,files.length);
-  w32(ev,12,cds);w32(ev,16,off);w16(ev,20,0);
-  return new Blob([...fr,...cr,new Uint8Array(eo)],{type:'application/zip'});
+  let cds = 0; cr.forEach(r => cds += r.length);
+  const eo = new ArrayBuffer(22), ev = new DataView(eo);
+  w32(ev, 0, 0x06054b50); w16(ev, 4, 0); w16(ev, 6, 0); w16(ev, 8, files.length); w16(ev, 10, files.length);
+  w32(ev, 12, cds); w32(ev, 16, off); w16(ev, 20, 0);
+  return new Blob([...fr, ...cr, new Uint8Array(eo)], { type: 'application/zip' });
 }
 
 function getRuntimeCss() {
@@ -445,7 +485,7 @@ function getRuntimeCss() {
   `;
 }
 
-function slugify(str) { return (str||'study').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); }
+function slugify(str) { return (str || 'study').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 document.getElementById('export-btn').addEventListener('click', () => document.getElementById('export-modal').classList.add('open'));
 document.getElementById('modal-close-btn').addEventListener('click', () => document.getElementById('export-modal').classList.remove('open'));
 document.getElementById('export-single-file').addEventListener('click', async () => {
@@ -455,8 +495,10 @@ document.getElementById('export-single-file').addEventListener('click', async ()
   a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' })); a.download = slugify(state.study.name) + '-study.html'; a.click();
 });
 const zipBtn = document.getElementById('export-zip');
-if (zipBtn) { zipBtn.addEventListener('click', async () => {
-  document.getElementById('export-modal').classList.remove('open');
-  const { files } = await buildStaticBundle(); const blob = makeZip(files);
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slugify(state.study.name) + '-static.zip'; a.click();
-}); }
+if (zipBtn) {
+  zipBtn.addEventListener('click', async () => {
+    document.getElementById('export-modal').classList.remove('open');
+    const { files } = await buildStaticBundle(); const blob = makeZip(files);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slugify(state.study.name) + '-static.zip'; a.click();
+  });
+}

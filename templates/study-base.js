@@ -60,7 +60,7 @@ function show(id) {
 
 function evalCond(cond, responses) {
   if (!cond) return true;
-  
+
   // 1. Handle new Compound Logic (AND / OR)
   if (cond.logical_op && Array.isArray(cond.rules)) {
     if (cond.rules.length === 0) return true;
@@ -76,14 +76,14 @@ function evalCond(cond, responses) {
   const rec = responses[cond.question_id];
   const val = rec && typeof rec === 'object' ? rec.value : rec;
   if (val === undefined || val === null || val === '') return false;
-  
+
   const cv = cond.value;
-  switch(cond.operator) {
-    case 'eq':  return val == cv;
+  switch (cond.operator) {
+    case 'eq': return val == cv;
     case 'neq': return val != cv;
-    case 'gt':  return Number(val) >  Number(cv);
+    case 'gt': return Number(val) > Number(cv);
     case 'gte': return Number(val) >= Number(cv);
-    case 'lt':  return Number(val) <  Number(cv);
+    case 'lt': return Number(val) < Number(cv);
     case 'lte': return Number(val) <= Number(cv);
     case 'includes': {
       const arr = Array.isArray(cv) ? cv : [cv];
@@ -105,9 +105,9 @@ function evalCond(cond, responses) {
     for (let i = 0; i < total; i++) {
       const t = document.createElement('div');
       t.className = isTrain ? 'training-tick' : 'dial-tick';
-      t.style.transform = `rotate(${i * (360/total)}deg)`;
+      t.style.transform = `rotate(${i * (360 / total)}deg)`;
       if (i % 2 === 0) t.style.height = isTrain ? '8px' : '10px';
-      if (i % (total/4) === 0) { t.style.height = isTrain ? '12px' : '14px'; t.style.background = 'var(--fg-muted)'; }
+      if (i % (total / 4) === 0) { t.style.height = isTrain ? '12px' : '14px'; t.style.background = 'var(--fg-muted)'; }
       c.appendChild(t);
     }
   });
@@ -150,7 +150,7 @@ const ResumeManager = {
   },
 
   clear(pid, day, urlSession) {
-    try { localStorage.removeItem(this._key(pid, day, urlSession)); } catch (e) {}
+    try { localStorage.removeItem(this._key(pid, day, urlSession)); } catch (e) { }
   }
 };
 
@@ -181,7 +181,7 @@ const CompletionLock = {
     if (isPreview) return;
     try {
       localStorage.setItem(this._key(pid, day, urlSession), new Date().toISOString());
-    } catch (e) {}
+    } catch (e) { }
   }
 };
 
@@ -195,7 +195,7 @@ function applyThemeFromConfig(cfg) {
   // Runs before any screen renders so there's no flash.
   const study = cfg.study || {};
   const accent = study.accent_color || '#e8716a';
-  const theme  = study.theme || 'oled';
+  const theme = study.theme || 'oled';
 
   const root = document.documentElement.style;
   root.setProperty('--accent', accent);
@@ -203,26 +203,26 @@ function applyThemeFromConfig(cfg) {
   // These color sets duplicate export.js getThemeCSS — kept in sync by hand.
   // If you change one, change the other.
   if (theme === 'light') {
-    root.setProperty('--bg',         '#f9f9fb');
+    root.setProperty('--bg', '#f9f9fb');
     root.setProperty('--bg-surface', '#ffffff');
-    root.setProperty('--bg-elevated','#f0f0f4');
-    root.setProperty('--border',     '#e0e0e5');
-    root.setProperty('--fg',         '#1c1c1e');
-    root.setProperty('--fg-muted',   '#8e8e93');
+    root.setProperty('--bg-elevated', '#f0f0f4');
+    root.setProperty('--border', '#e0e0e5');
+    root.setProperty('--fg', '#1c1c1e');
+    root.setProperty('--fg-muted', '#8e8e93');
   } else if (theme === 'dark') {
-    root.setProperty('--bg',         '#121212');
+    root.setProperty('--bg', '#121212');
     root.setProperty('--bg-surface', '#1e1e1e');
-    root.setProperty('--bg-elevated','#2d2d2d');
-    root.setProperty('--border',     '#3d3d3d');
-    root.setProperty('--fg',         '#e0e0e0');
-    root.setProperty('--fg-muted',   '#9e9e9e');
+    root.setProperty('--bg-elevated', '#2d2d2d');
+    root.setProperty('--border', '#3d3d3d');
+    root.setProperty('--fg', '#e0e0e0');
+    root.setProperty('--fg-muted', '#9e9e9e');
   } else {
-    root.setProperty('--bg',         '#000000');
+    root.setProperty('--bg', '#000000');
     root.setProperty('--bg-surface', '#111111');
-    root.setProperty('--bg-elevated','#1c1c1e');
-    root.setProperty('--border',     '#2c2c2e');
-    root.setProperty('--fg',         '#ffffff');
-    root.setProperty('--fg-muted',   '#8e8e93');
+    root.setProperty('--bg-elevated', '#1c1c1e');
+    root.setProperty('--border', '#2c2c2e');
+    root.setProperty('--fg', '#ffffff');
+    root.setProperty('--fg-muted', '#8e8e93');
   }
 }
 
@@ -295,7 +295,7 @@ const Upload = {
     const emaEntries = (sessionData.data || []).filter(e => e && e.type === 'ema_response');
 
     emaEntries.forEach(entry => {
-      const wId  = entry.windowId || '';
+      const wId = entry.windowId || '';
       const wCfg = windows.find(w => w.id === wId);
       const wLabel = wCfg ? wCfg.label : '';
       const phaseStart = entry.startedAt || '';
@@ -369,7 +369,7 @@ const Upload = {
     const base = `${slug}_${pid}_${date}_${sid}`;
 
     const shouldEmitJson = format === 'json' || this._hasTaskSignalData(sessionData);
-    const shouldEmitCsv  = format === 'csv';
+    const shouldEmitCsv = format === 'csv';
 
     if (shouldEmitCsv) {
       const csv = this._csvString(this._buildEmaCsv(sessionData, cfg));
@@ -382,20 +382,20 @@ const Upload = {
     if (shouldEmitJson) {
       const payload = (shouldEmitCsv && this._hasTaskSignalData(sessionData))
         ? {
-            schemaVersion: sessionData.schemaVersion,
-            studyName:     sessionData.studyName,
-            sessionId:     sessionData.sessionId,
-            participantId: sessionData.participantId,
-            day:           sessionData.day,
-            type:          sessionData.type,
-            phases:        sessionData.phases,
-            counterbalance: sessionData.counterbalance,
-            startedAt:     sessionData.startedAt,
-            completedAt:   sessionData.completedAt,
-            device:        sessionData.device,
-            status:        sessionData.status,
-            data:          (sessionData.data || []).filter(e => e && e.type !== 'ema_response')
-          }
+          schemaVersion: sessionData.schemaVersion,
+          studyName: sessionData.studyName,
+          sessionId: sessionData.sessionId,
+          participantId: sessionData.participantId,
+          day: sessionData.day,
+          type: sessionData.type,
+          phases: sessionData.phases,
+          counterbalance: sessionData.counterbalance,
+          startedAt: sessionData.startedAt,
+          completedAt: sessionData.completedAt,
+          device: sessionData.device,
+          status: sessionData.status,
+          data: (sessionData.data || []).filter(e => e && e.type !== 'ema_response')
+        }
         : sessionData;
 
       const suffix = (shouldEmitCsv && this._hasTaskSignalData(sessionData)) ? '_task' : '';
@@ -427,7 +427,7 @@ function collectDeviceMetadata() {
 // ==========================================================
 // MAIN RUNTIME EXECUTOR
 // ==========================================================
-(async function() {
+(async function () {
   const config = await loadConfig();
 
   // Apply theme first so there's no flash of wrong-themed screen
@@ -446,12 +446,12 @@ function collectDeviceMetadata() {
 
   // Stable URL-derived identifiers for resume + completion lock.
   // These are set before any session starts so we can check locks upfront.
-  const urlPid     = (params.get('id') || '').trim();
-  const urlDay     = params.get('day') || '';
+  const urlPid = (params.get('id') || '').trim();
+  const urlDay = params.get('day') || '';
   const urlSession = sessionId;
   const forceOverride = params.get('force') === '1';
 
-if (urlPid) {
+  if (urlPid) {
     pidInput.value = urlPid;
     document.getElementById('participant-input-group').style.display = 'none';
   }
@@ -461,7 +461,7 @@ if (urlPid) {
     dl.style.display = 'block';
   }
   pidInput.addEventListener('input', () => { startBtn.disabled = !pidInput.value.trim(); });
- 
+
   // Enable the start button whenever there's a usable PID, covering all cases:
   //   1. URL supplied ?id=  (real participant link)
   //   2. Preview mode       (no URL params, no one typing)
@@ -471,7 +471,7 @@ if (urlPid) {
     document.getElementById('participant-input-group').style.display = 'none';
     startBtn.disabled = false;
   }
- 
+
   // Enable the start button whenever there's a usable PID, covering all cases:
   //   1. URL supplied ?id=  (real participant link)
   //   2. Preview mode       (no URL params, no one typing)
@@ -504,19 +504,19 @@ if (urlPid) {
   // ---------------------------------------------------------------
   let sessionData = {
     schemaVersion: config.schema_version || '',
-    studyName:     config.study?.name || '',
-    sessionId:     "ses_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+    studyName: config.study?.name || '',
+    sessionId: "ses_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
     participantId: urlPid,
-    day:           parseInt(urlDay) || null,
-    type:          "",
-    phases:        [],
-    currentPhase:  0,
+    day: parseInt(urlDay) || null,
+    type: "",
+    phases: [],
+    currentPhase: 0,
     counterbalance: null,
-    startedAt:     null,
-    completedAt:   null,
-    device:        null,
-    data:          [],
-    status:        "in_progress"
+    startedAt: null,
+    completedAt: null,
+    device: null,
+    data: [],
+    status: "in_progress"
   };
 
   const cbParam = params.get('cb');
@@ -531,7 +531,7 @@ if (urlPid) {
     const seq = (Array.isArray(w.phase_sequence) && w.phase_sequence.length > 0)
       ? w.phase_sequence
       : legacyTripleToSequence(w.phases);
- 
+
     // Collect already-submitted EMA responses for condition evaluation.
     // At this point sessionData.data may contain ema_response entries from
     // phases that already ran in this session.
@@ -548,10 +548,10 @@ if (urlPid) {
       });
       return merged;
     }
- 
+
     const tokens = [];
     let emaBlockCounter = { pre: 0, post: 0 };
- 
+
     seq.forEach(step => {
       if (step.kind === 'ema') {
         const block = step.block === 'post' ? 'post' : 'pre';
@@ -560,7 +560,7 @@ if (urlPid) {
         const count = emaBlockCounter[block]++;
         const prefix = count === 0 ? block : `${block}${count + 1}`;
         tokens.push(`${prefix}_${w.id}`);
- 
+
       } else if (step.kind === 'task' && step.id && enabledModules[step.id]) {
         // Evaluate optional condition
         if (step.condition && step.condition.question_id) {
@@ -570,10 +570,10 @@ if (urlPid) {
           }
         }
         tokens.push(step.id);
- 
+
       } else if (step.kind === 'hr') {
         // HR capture is its own phase token: 'hr:<store_as>:<duration_sec>'
-        const storeAs  = step.store_as  || 'hr_result';
+        const storeAs = step.store_as || 'hr_result';
         const duration = step.duration_sec || 30;
         tokens.push(`hr:${storeAs}:${duration}`);
       }
@@ -585,9 +585,9 @@ if (urlPid) {
   function legacyTripleToSequence(phases) {
     const ph = phases || { pre: true, task: null, post: false };
     const seq = [];
-    if (ph.pre)             seq.push({ kind: "ema",  block: "pre"  });
-    if (ph.task)            seq.push({ kind: "task", id:    ph.task });
-    if (ph.post && ph.task) seq.push({ kind: "ema",  block: "post" });
+    if (ph.pre) seq.push({ kind: "ema", block: "pre" });
+    if (ph.task) seq.push({ kind: "task", id: ph.task });
+    if (ph.post && ph.task) seq.push({ kind: "ema", block: "post" });
     return seq;
   }
 
@@ -617,11 +617,11 @@ if (urlPid) {
       // and a task, and cb=task_first was requested. Kept narrow-scope — if you
       // need arbitrary permutations you'd edit phase_sequence directly in config.
       if (cbParam && phaseTokens.length >= 2) {
-        const firstIsPre  = phaseTokens[0].startsWith('pre_');
+        const firstIsPre = phaseTokens[0].startsWith('pre_');
         const secondIsTask = !phaseTokens[1].startsWith('pre_') && !phaseTokens[1].startsWith('post_');
         if (firstIsPre && secondIsTask) {
           const wantTaskFirst = (cbParam === 'task_first') ||
-                                (cbParam === 'pat_first' && phaseTokens[1] === 'epat');
+            (cbParam === 'pat_first' && phaseTokens[1] === 'epat');
           if (wantTaskFirst) {
             [phaseTokens[0], phaseTokens[1]] = [phaseTokens[1], phaseTokens[0]];
             sessionData.counterbalance = 'task_first';
@@ -645,7 +645,7 @@ if (urlPid) {
   const greetings = config.study?.greetings || {};
   const matchedWindow = dynamicWindows.find(w => w.id === sessionId);
   const greetingText = greetings[sessionId]
-                    || (matchedWindow ? matchedWindow.label : 'Check-In');
+    || (matchedWindow ? matchedWindow.label : 'Check-In');
   const greetingEl = document.getElementById('ema-greeting');
   if (greetingEl) greetingEl.textContent = greetingText;
 
@@ -753,6 +753,15 @@ if (urlPid) {
           advancePhase();
         }
         break;
+
+      case 'hct':
+        if (config.modules?.hct && window.ePATCore && typeof HCT !== 'undefined') {
+          HCT.startBaseline();
+        } else {
+          console.warn('HCT phase requested but module/core not available; skipping.');
+          advancePhase();
+        }
+        break;
       // Future modules register here. Example:
       // case 'stroop':
       //   if (config.modules?.stroop && typeof Stroop !== 'undefined') Stroop.start();
@@ -799,7 +808,16 @@ if (urlPid) {
 
     const totalBeats = sessionData.data.reduce((sum, entry) => {
       if (entry.type === "baseline") return sum + (entry.recordedHR ? entry.recordedHR.length : 0);
-      if (entry.type === "trial")    return sum + (entry.qualitySummary ? entry.qualitySummary.totalBeats : 0);
+      if (entry.type === "trial") return sum + (entry.qualitySummary ? entry.qualitySummary.totalBeats : 0);
+      if (entry.type === "hct_response") {
+        // Sum baseline beats + all interval (and practice) beat counts. The
+        // hct_response envelope already consolidates these — recordedHR length
+        // is the source of truth for beats contributed.
+        let n = entry.baseline?.totalBeats || (entry.baseline?.recordedHR?.length || 0);
+        (entry.intervals || []).forEach(i => { n += (i.recordedHR?.length || 0); });
+        (entry.practices || []).forEach(i => { n += (i.recordedHR?.length || 0); });
+        return sum + n;
+      }
       return sum;
     }, 0);
 
@@ -815,9 +833,9 @@ if (urlPid) {
 
     // --- NEW WEBHOOK LOGIC ---
     if (config.study.webhook_url && config.study.webhook_url.trim() !== "") {
-      
+
       downloadBtn.style.display = 'none'; // Hide manual download button
-      
+
       if (!statusText) return;
       statusText.textContent = "Uploading data securely...";
       statusText.style.display = "block";
@@ -828,7 +846,7 @@ if (urlPid) {
         participant_id: sessionData.participantId,
         day: sessionData.day,
         window_id: urlSession,
-        session_data: sessionData 
+        session_data: sessionData
       };
 
       fetch(config.study.webhook_url, {
@@ -836,20 +854,20 @@ if (urlPid) {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Bypasses CORS pre-flight
         body: JSON.stringify(payload)
       })
-      .then(response => {
-        if(response.ok) {
-          statusText.style.color = "var(--accent-green)";
-          statusText.textContent = "✓ Data uploaded successfully. You can close this page.";
-        } else {
-          throw new Error("Upload failed");
-        }
-      })
-      .catch(error => {
-        // Fallback: Network error. Show the manual download button so data isn't lost.
-        statusText.style.color = "var(--accent-red)";
-        statusText.textContent = "Upload failed (No internet?). Please save a local copy.";
-        downloadBtn.style.display = 'block'; 
-      });
+        .then(response => {
+          if (response.ok) {
+            statusText.style.color = "var(--accent-green)";
+            statusText.textContent = "✓ Data uploaded successfully. You can close this page.";
+          } else {
+            throw new Error("Upload failed");
+          }
+        })
+        .catch(error => {
+          // Fallback: Network error. Show the manual download button so data isn't lost.
+          statusText.style.color = "var(--accent-red)";
+          statusText.textContent = "Upload failed (No internet?). Please save a local copy.";
+          downloadBtn.style.display = 'block';
+        });
     }
   }
 
