@@ -1,5 +1,5 @@
 /* ============================================================
- * epat-core.js  —  v5
+ * epat-core.js  —  v5 (Optimized)
  * ------------------------------------------------------------
  * the ecological phase adjustment task — core signal pipeline.
  *
@@ -17,57 +17,57 @@
  * --- v5 channel-switching architecture ---
  *
  * PROBLEM WITH v4:
- *   computeSqi() operated on rawBuffer (perfusion index = (max-min)/mean of the
- *   raw camera channel). during finger placement the raw signal ramps from ambient
- *   (~0.10) up to finger-on levels (~0.40) inside the 3s calibration window.
- *   that ramp makes (max-min)/mean explode — green routinely hit 14+ vs red's 0.6 —
- *   so green always "won" calibration regardless of actual AC signal quality.
- *   additionally, CRITICAL_SQI = 0.005 was calibrated against the torch-saturated
- *   red channel (raw PI ~0.01). green's raw PI baseline is ~0.35, so green never
- *   triggered failover. result: green locked in permanently, WABP learned noise,
- *   death spiral.
+ * computeSqi() operated on rawBuffer (perfusion index = (max-min)/mean of the
+ * raw camera channel). during finger placement the raw signal ramps from ambient
+ * (~0.10) up to finger-on levels (~0.40) inside the 3s calibration window.
+ * that ramp makes (max-min)/mean explode — green routinely hit 14+ vs red's 0.6 —
+ * so green always "won" calibration regardless of actual AC signal quality.
+ * additionally, CRITICAL_SQI = 0.005 was calibrated against the torch-saturated
+ * red channel (raw PI ~0.01). green's raw PI baseline is ~0.35, so green never
+ * triggered failover. result: green locked in permanently, WABP learned noise,
+ * death spiral.
  *
  * v5 SQI METRIC — filtered peak-to-peak:
- *   SQI is now computed from filteredBuffer (bandpass output), not rawBuffer.
- *   metric: peak-to-peak amplitude over a 2s rolling window.
- *   this directly measures what WABP cares about — detectable AC signal amplitude.
- *   it is scale-comparable across red and green (both are normalized by the same
- *   filter, so a larger value genuinely means a stronger pulse signal regardless
- *   of DC operating point). the raw-buffer perfusion index is retained as a
- *   separate metric exposed to callers for reference, but is no longer used for
- *   any switching decision.
+ * SQI is now computed from filteredBuffer (bandpass output), not rawBuffer.
+ * metric: peak-to-peak amplitude over a 2s rolling window.
+ * this directly measures what WABP cares about — detectable AC signal amplitude.
+ * it is scale-comparable across red and green (both are normalized by the same
+ * filter, so a larger value genuinely means a stronger pulse signal regardless
+ * of DC operating point). the raw-buffer perfusion index is retained as a
+ * separate metric exposed to callers for reference, but is no longer used for
+ * any switching decision.
  *
  * v5 CALIBRATION:
- *   after finger detection, a 4.5s settling window is enforced before baselines are locked.
- *   (the HP filter at 0.67 Hz has a time constant of ~0.24s; 5τ ≈ 1.2s, so 2s
- *   gives comfortable margin for the transient ring-down). then a 1s measurement
- *   window accumulates filtered pp for both channels. the winner is the channel
- *   with higher mean pp over that window. calibration completes at ~3s post-finger,
- *   well within WABP's 8s learning period.
+ * after finger detection, a 4.5s settling window is enforced before baselines are locked.
+ * (the HP filter at 0.67 Hz has a time constant of ~0.24s; 5τ ≈ 1.2s, so 2s
+ * gives comfortable margin for the transient ring-down). then a 1s measurement
+ * window accumulates filtered pp for both channels. the winner is the channel
+ * with higher mean pp over that window. calibration completes at ~3s post-finger,
+ * well within WABP's 8s learning period.
  *
  * v5 DUAL WABP:
- *   two independent WabpDetector instances run in parallel from t=0 on their
- *   respective filtered signals. both are always processing — there is no "off"
- *   instance. only the active channel's detections are emitted as beats. this
- *   means on failover the backup detector has already adapted its thresholds to
- *   the current signal, so no reset and no cold-start blackout.
+ * two independent WabpDetector instances run in parallel from t=0 on their
+ * respective filtered signals. both are always processing — there is no "off"
+ * instance. only the active channel's detections are emitted as beats. this
+ * means on failover the backup detector has already adapted its thresholds to
+ * the current signal, so no reset and no cold-start blackout.
  *
  * v5 FAILOVER — relative thresholds:
- *   failover thresholds are expressed as a fraction of each channel's own
- *   calibration baseline pp, not as absolute values. this makes them dimensionless
- *   and channel-agnostic. switching fires when:
- *     (a) active channel pp < baseline * FAILOVER_DROP (signal fell >60%)
- *     (b) backup channel pp > its baseline * BACKUP_VIABLE (backup has >25% of its signal)
- *     (c) condition holds for ANTITHRASH_COUNT consecutive 1s SQI checks
- *   after a switch, the new channel's current pp becomes its running baseline.
- *   switching back to the original channel obeys the same rules — no special bias.
+ * failover thresholds are expressed as a fraction of each channel's own
+ * calibration baseline pp, not as absolute values. this makes them dimensionless
+ * and channel-agnostic. switching fires when:
+ * (a) active channel pp < baseline * FAILOVER_DROP (signal fell >60%)
+ * (b) backup channel pp > its baseline * BACKUP_VIABLE (backup has >25% of its signal)
+ * (c) condition holds for ANTITHRASH_COUNT consecutive 1s SQI checks
+ * after a switch, the new channel's current pp becomes its running baseline.
+ * switching back to the original channel obeys the same rules — no special bias.
  *
- * api contract notes (unchanged from v4):
+ * api contract notes:
  * - BeatDetector.setCallbacks() does NOT reset filter/detector state.
  * - only BeatDetector.stop() fully tears down camera + filter state.
  * - all timestamps use performance.now() (monotonic, ms since page load).
  * - onSqiUpdateCb(sqiRed, sqiGreen, activeChannel) — both values are the
- *   filtered-pp metric (not raw PI), reported every SQI_INTERVAL_MS.
+ * filtered-pp metric (not raw PI), reported every SQI_INTERVAL_MS.
  * ============================================================ */
 
 (function () {
@@ -167,10 +167,29 @@
               for (let j = seLen - 2; j >= Math.max(0, seLen - 2 - halfEye); j--) {
                 if (j > 0 && (slopeEnergyBuffer[j] - slopeEnergyBuffer[j - 1]) < onsetThresh) { onsetIdx = j; break; }
               }
+              
+              // ── SUB-FRAME QUADRATIC INTERPOLATION ──
+              // We interpolate the peak of the slopeEnergy curve (s1) to find its 
+              // true sub-frame position, which prevents HRV quantization clipping.
+              let fractionalOffset = 0;
+              const denom = s0 - 2 * s1 + s2;
+              if (denom !== 0) {
+                // If s2 > s0, the true peak is slightly later in time (offset > 0)
+                fractionalOffset = 0.5 * ((s0 - s2) / denom);
+              }
+
               Ta += (maxVal - Ta) / 10; T1 = Ta / 3;
               lastOnsetIndex = sampleIndex; noDetectTimer = 0;
               const framesAgo = (seLen - 1) - onsetIdx;
-              return { detected: true, onsetIndex: sampleIndex - framesAgo, framesAgo, peakEnergy: maxVal };
+              
+              // Subtract fractionalOffset from framesAgo. If offset > 0 (peak happened more recently), 
+              // framesAgo becomes smaller, shifting the calculated beatTime forward appropriately.
+              return { 
+                detected: true, 
+                onsetIndex: sampleIndex - framesAgo, 
+                framesAgo: framesAgo - fractionalOffset, 
+                peakEnergy: maxVal 
+              };
             }
           }
         }
@@ -201,36 +220,14 @@
     const FINGER_BRIGHTNESS_MIN = 0.15, FINGER_BRIGHTNESS_MAX = 0.98, FINGER_RED_DOMINANCE = 0.38;
 
     // --- calibration & switching parameters ---
-    // CAL_SETTLE_MS: how long after finger detection before baselines are locked.
-    // must be long enough for two things to clear:
-    //   (1) HP filter transient: at 0.67 Hz cutoff, 5τ ≈ 1.2s. 
-    //   (2) SQI rolling window: computeFilteredPP uses a 2s window, so the first
-    //       clean SQI reading requires 2s of post-transient data in the buffer.
-    //   → 4.5s covers both with margin. at 4.5s the oldest sample in the 2s window
-    //     is from t=2.5s, which is post-transient on every device tested.
-    //
-    // there is no 'measuring' phase and no calibration winner comparison.
-    // channel selection at startup is not meaningful because:
-    //   - both channels have nearly equal SQI at rest during the settle window
-    //   - the better channel only becomes apparent under real-world conditions
-    //   - ambient light, temperature, and posture determine which channel wins
-    //   - a comparison during a calm 1s window gets this wrong as often as right
-    //
-    // instead: always start on RED (most robust default — torch is optimised for red
-    // and it is unaffected by ambient light changes), then let the failover mechanism
-    // discover green if it genuinely proves better over 2+ consecutive SQI checks.
-    // each channel gets its own per-channel baseline (self-referenced, not compared),
-    // so transient spikes affect only that channel's own threshold, not the decision.
     const CAL_SETTLE_MS    = 4500;
-    // failover: active channel's pp must fall below this fraction of its own baseline
     const FAILOVER_DROP    = 0.40;
-    // backup must have at least this fraction of its own baseline to be considered viable
     const BACKUP_VIABLE    = 0.25;
-    // antithrash: require this many consecutive SQI checks before switching
     const ANTITHRASH_COUNT = 2;
 
     let video = null, canvas = null, ctx = null, stream = null, track = null;
     let running = false, animFrameId = null, actualFPS = 30, startTime = 0, lastFrameTime = 0;
+    let lastVideoTime = 0; // VFR deduplication tracker
     let fingerPresent = false, fingerDebounceCount = 0;
     const FINGER_DEBOUNCE_FRAMES = 8;
 
@@ -245,19 +242,9 @@
     const MAX_RECENT_PERIODS = 10;
     let dicroticRejectCount = 0;
 
-    // --- post-switch stabilization ---
-    // when the active channel changes, the new channel's WABP may have a decayed
-    // threshold (Ta→Tm) from running as a quiet backup. it can fire rapidly on noise
-    // before recentPeriods fills enough for the median gate to be meaningful.
-    // switchStabPeriodMs carries the last known good period into evaluateBeat so the
-    // dicrotic gate has a real reference rather than the 800ms default.
-    // it is cleared once recentPeriods reaches DICROTIC_MIN_PERIODS beats.
     let switchStabPeriodMs = 0;  // 0 = inactive
 
     // --- SQI (filtered peak-to-peak) ---
-    // SQI_WINDOW_S: how wide a window to measure pp over. 2s covers ~1–2 full cycles
-    // at resting HR, long enough for a reliable pp estimate, short enough to track
-    // signal degradation within a few seconds.
     const SQI_WINDOW_S   = 2;
     const SQI_INTERVAL_MS = 1000;
     let lastSqiTime = 0, currentSqiRed = 0, currentSqiGreen = 0;
@@ -267,8 +254,6 @@
     let wabpGreen = makeWabpDetector();
 
     // --- channel state machine ---
-    // phases: 'settling' → 'locked'
-    // no measuring/winner phase — see CAL_SETTLE_MS comment above.
     let calPhase = 'settling';
     let calPhaseStartTime = 0;           // when settling began (performance.now())
     let activeChannel     = 'red';       // always start on red; failover discovers green
@@ -282,28 +267,70 @@
     // --- brightness clipping diagnostics ---
     let clipCount = 0, clipTotal = 0;
 
-    // --- bandpass filter coefficients & state ---
-    let HP_ALPHA = 0, LP_ALPHA = 0;
-    let hpState      = { x1: 0, y1: 0 }, lpState      = { y1: 0 };
-    let hpStateGreen = { x1: 0, y1: 0 }, lpStateGreen = { y1: 0 };
+    // ── 2ND-ORDER BUTTERWORTH BIQUAD FILTERS ─────────────────
+    let lpRed, hpRed;
+    let lpGreen, hpGreen;
 
-    function computeFilterCoeffs(sr) {
-      const hpRC = 1 / (2 * Math.PI * 0.67), lpRC = 1 / (2 * Math.PI * 3.33);
-      HP_ALPHA = hpRC / (hpRC + 1 / sr);
-      LP_ALPHA = (1 / sr) / (lpRC + 1 / sr);
+    function createBiquad(type, fs, f0) {
+      const w0 = 2 * Math.PI * f0 / fs;
+      // Butterworth Q = 1/sqrt(2) = 0.7071
+      const alpha = Math.sin(w0) / (2 * 0.70710678);
+      const cosw0 = Math.cos(w0);
+      let b0, b1, b2, a0, a1, a2;
+
+      if (type === 'lp') {
+        b0 =  (1 - cosw0) / 2;
+        b1 =   1 - cosw0;
+        b2 =  (1 - cosw0) / 2;
+        a0 =   1 + alpha;
+        a1 =  -2 * cosw0;
+        a2 =   1 - alpha;
+      } else if (type === 'hp') {
+        b0 =  (1 + cosw0) / 2;
+        b1 = -(1 + cosw0);
+        b2 =  (1 + cosw0) / 2;
+        a0 =   1 + alpha;
+        a1 =  -2 * cosw0;
+        a2 =   1 - alpha;
+      }
+
+      return {
+        b0: b0 / a0, b1: b1 / a0, b2: b2 / a0,
+        a1: a1 / a0, a2: a2 / a0,
+        x1: 0, x2: 0, y1: 0, y2: 0
+      };
     }
 
-    function highpass(x)      { const y = HP_ALPHA * (hpState.y1 + x - hpState.x1);           hpState.x1 = x;      hpState.y1 = y;      return y; }
-    function lowpass(x)       { const y = lpState.y1 + LP_ALPHA * (x - lpState.y1);            lpState.y1 = y;                           return y; }
-    function bandpass(x)      { return lowpass(highpass(x)); }
+    function processBiquad(bq, x) {
+      const y = bq.b0 * x + bq.b1 * bq.x1 + bq.b2 * bq.x2 - bq.a1 * bq.y1 - bq.a2 * bq.y2;
+      bq.x2 = bq.x1;
+      bq.x1 = x;
+      bq.y2 = bq.y1;
+      bq.y1 = y;
+      return y;
+    }
 
-    function highpassGreen(x) { const y = HP_ALPHA * (hpStateGreen.y1 + x - hpStateGreen.x1); hpStateGreen.x1 = x; hpStateGreen.y1 = y; return y; }
-    function lowpassGreen(x)  { const y = lpStateGreen.y1 + LP_ALPHA * (x - lpStateGreen.y1); lpStateGreen.y1 = y;                      return y; }
-    function bandpassGreen(x) { return lowpassGreen(highpassGreen(x)); }
+    function computeFilterCoeffs(sr) {
+      hpRed   = createBiquad('hp', sr, 0.67);
+      lpRed   = createBiquad('lp', sr, 3.33);
+      hpGreen = createBiquad('hp', sr, 0.67);
+      lpGreen = createBiquad('lp', sr, 3.33);
+    }
+
+    function bandpass(x) {
+      return processBiquad(lpRed, processBiquad(hpRed, x));
+    }
+
+    function bandpassGreen(x) {
+      return processBiquad(lpGreen, processBiquad(hpGreen, x));
+    }
 
     function resetFilters() {
-      hpState      = { x1: 0, y1: 0 }; lpState      = { y1: 0 };
-      hpStateGreen = { x1: 0, y1: 0 }; lpStateGreen = { y1: 0 };
+      if (!hpRed) return;
+      hpRed.x1 = hpRed.x2 = hpRed.y1 = hpRed.y2 = 0;
+      lpRed.x1 = lpRed.x2 = lpRed.y1 = lpRed.y2 = 0;
+      hpGreen.x1 = hpGreen.x2 = hpGreen.y1 = hpGreen.y2 = 0;
+      lpGreen.x1 = lpGreen.x2 = lpGreen.y1 = lpGreen.y2 = 0;
     }
 
     function getMedian(arr) {
@@ -338,8 +365,6 @@
           fingerPresent = looksLikeFinger;
           fingerDebounceCount = 0;
           if (fingerPresent) {
-            // finger placed: restart settle timer. keep WABP running —
-            // if this is a re-placement, existing thresholds are still valid.
             calPhase = 'settling';
             calPhaseStartTime = performance.now();
             failoverCounter = 0;
@@ -351,9 +376,6 @@
     }
 
     // ── filtered peak-to-peak SQI ────────────────────────────
-    // operates on filteredBuffer / filteredBufferGreen.
-    // returns peak-to-peak amplitude over the most recent SQI_WINDOW_S seconds.
-    // this is the primary quality signal used for all switching decisions.
     function computeFilteredPP(buf) {
       const windowSamples = Math.round(actualFPS * SQI_WINDOW_S);
       if (buf.length < windowSamples) return 0;
@@ -382,15 +404,9 @@
     }
 
     // ── calibration state machine ────────────────────────────
-    // called once per SQI interval while finger is present.
-    // 'settling' → wait CAL_SETTLE_MS for filter transient + SQI window to clear
-    // 'locked'   → baselines set; run failover logic every SQI check
     function updateCalibrationAndSwitcher(now, ppRed, ppGreen) {
       if (calPhase === 'settling') {
         if (now - calPhaseStartTime >= CAL_SETTLE_MS) {
-          // first clean SQI reading — lock per-channel baselines and start on red.
-          // if either channel has zero signal at lock time (finger not fully placed),
-          // use a small non-zero floor so the threshold maths don't collapse.
           redBaseline   = ppRed   > 0 ? ppRed   : 1e-6;
           greenBaseline = ppGreen > 0 ? ppGreen : 1e-6;
           activeChannel = 'red';
@@ -400,7 +416,6 @@
         return; // no switching during settle
       }
 
-      // calPhase === 'locked' — evaluate failover every SQI check
       if (activeChannel === 'red') {
         const activeOk = ppRed   >= redBaseline   * FAILOVER_DROP;
         const backupOk = ppGreen >= greenBaseline * BACKUP_VIABLE;
@@ -408,7 +423,7 @@
           failoverCounter++;
           if (failoverCounter >= ANTITHRASH_COUNT) {
             activeChannel = 'green';
-            greenBaseline = ppGreen > 0 ? ppGreen : greenBaseline; // re-anchor baseline
+            greenBaseline = ppGreen > 0 ? ppGreen : greenBaseline; 
             failoverCounter = 0;
             if (averagePeriod > 0) switchStabPeriodMs = averagePeriod * 1000;
           }
@@ -433,34 +448,22 @@
     }
 
     // ── beat acceptance (shared between channels) ────────────
-    // returns { accepted: bool, isDicrotic: bool }
     function evaluateBeat(beatTime, lastBeatTime) {
       const interval = beatTime - lastBeatTime;
 
-      // not yet anchored — accept and anchor without emitting
       if (lastBeatTime === 0 || interval > 2500) {
         return { accepted: false, anchor: true };
       }
 
-      // absolute physiological floor
       if (interval < 350) {
         return { accepted: false, anchor: false };
       }
 
-      // median-anchored dicrotic gate.
-      // priority: (1) live median once recentPeriods is full enough,
-      //           (2) switchStabPeriodMs — carried from the prior channel on failover,
-      //               active only until recentPeriods reaches DICROTIC_MIN_PERIODS,
-      //           (3) 800ms safe default (75 BPM) while learning the first beats.
-      // the stab seed closes the gap where a threshold-decayed backup WABP can fire
-      // at 500–700ms intervals that pass the 800ms-based default gate (480ms threshold)
-      // but would correctly be blocked by a real period reference (e.g., 560ms gate
-      // at a true 933ms / 65 BPM period).
       const DICROTIC_MIN_PERIODS = 3;
       let expectedPeriodMs;
       if (recentPeriods.length >= DICROTIC_MIN_PERIODS) {
         expectedPeriodMs = getMedian(recentPeriods) * 1000;
-        switchStabPeriodMs = 0;  // live data is available; disarm stabilization
+        switchStabPeriodMs = 0; 
       } else if (switchStabPeriodMs > 0) {
         expectedPeriodMs = switchStabPeriodMs;
       } else {
@@ -477,8 +480,17 @@
     // ── main frame loop ──────────────────────────────────────
     function processFrame() {
       if (!running) return;
-      const now = performance.now();
 
+      // ── PHANTOM SAMPLE FIX ──
+      // VFR (Variable Frame Rate) decoupling. Ensures we don't process duplicate 
+      // frames if the 60/120Hz display refreshes faster than the 30Hz camera paints.
+      if (video && video.currentTime === lastVideoTime && lastVideoTime !== 0) {
+        animFrameId = requestAnimationFrame(processFrame);
+        return;
+      }
+      if (video) lastVideoTime = video.currentTime;
+
+      const now = performance.now();
       const means = extractMeans();
 
       const filtered      = bandpass(means.red);
@@ -519,7 +531,6 @@
       }
 
       // ── feed both WABP instances every frame ───────────────
-      // both run regardless of which is active — keeps the backup warm.
       const resultRed   = wabpRed.processSample(filtered);
       const resultGreen = wabpGreen.processSample(filteredGreen);
 
@@ -685,6 +696,8 @@
 
         frameDeltaBuffer = []; frameDropCount = 0; totalFrames = 0;
         clipCount = 0; clipTotal = 0; dicroticRejectCount = 0;
+        
+        lastVideoTime = 0; // Reset VFR tracker
 
         computeFilterCoeffs(actualFPS); resetFilters();
 
@@ -704,7 +717,6 @@
         await stopCamera();
       },
 
-      // swap callbacks without touching filter/detector state.
       setCallbacks(cbs) {
         if (cbs.onBeatCb           !== undefined) onBeat           = cbs.onBeatCb;
         if (cbs.onFingerChangeCb   !== undefined) onFingerChange   = cbs.onFingerChangeCb;
@@ -731,6 +743,7 @@
           redBaseline, greenBaseline,
         };
       },
+      getTrack()               { return track; } // Exposed for the validation UI toggleTorch
     };
   })();
 
