@@ -361,7 +361,7 @@ function interpolate(text, responses) {
       previewCtx = previewCanvas.getContext('2d');
     }
  
-    if (!core) {
+    if (isPreview || !core) {
       // Preview mode — simulate
       if (statusEl) {
         statusEl.textContent = 'Preview: simulating…';

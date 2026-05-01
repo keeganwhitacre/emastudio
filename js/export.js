@@ -282,7 +282,14 @@ function buildHtmlShell({ cfg, themeCSS, includeEpatCore, configTag, coreTag, st
                color:var(--fg); outline:none; -moz-appearance:textfield;"
         placeholder="0">
     </div>
-    <button class="btn btn-primary btn-block" id="hct-count-submit" disabled style="margin-top:24px;">Continue</button>
+    <!-- v3: persistent finger-on-camera reminder. Sits above the Continue
+         button so it's visible while the participant is typing, not buried
+         at the bottom. Subtle styling (muted, small) — not an alert. -->
+    <div style="display:flex; align-items:center; justify-content:center; gap:8px; padding:8px 12px; margin-top:16px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:8px; font-size:0.78rem; color:var(--fg-muted);">
+      <span>📷</span>
+      <span>Keep one finger on the camera</span>
+    </div>
+    <button class="btn btn-primary btn-block" id="hct-count-submit" disabled style="margin-top:12px;">Continue</button>
   </div>
 
   <div class="screen" id="screen-bodymap">

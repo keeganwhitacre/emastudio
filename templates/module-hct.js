@@ -53,7 +53,12 @@ const HCT = (function() {
   const INCLUDE_PRACTICE  = cfg.include_practice !== false;       // default ON
   const PRACTICE_DUR_SEC  = cfg.practice_duration_sec || 15;
   const SHOW_TIMER        = cfg.show_timer === true;              // default OFF
-  const SHOW_PROGRESS_RING= cfg.show_progress_ring !== false;     // default ON
+  // v3: progress ring default flipped to OFF. Showing how far through an
+  // interval the participant is provides a soft cue for time-counting
+  // heuristics, which the HCT validity literature (Brener & Ring 2018,
+  // Desmedt et al. 2018) flags as the central contamination risk. Researchers
+  // who want the ring for participant comfort can opt in via the builder.
+  const SHOW_PROGRESS_RING= cfg.show_progress_ring === true;      // default OFF
   const CONF_RATINGS      = cfg.confidence_ratings !== false;     // default ON
   const BODY_MAP_EVERY    = cfg.body_map ? (cfg.body_map_every || 4) : Infinity;
   const INSTRUCTION_VARIANT = cfg.instruction_variant || 'count'; // 'count' | 'estimate'
@@ -230,15 +235,15 @@ const HCT = (function() {
           <div style="display:flex; align-items:flex-start; gap:14px; margin-bottom:18px;">
             <div style="width:36px; height:36px; border-radius:50%; background:var(--bg-elevated); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem;">📷</div>
             <div>
-              <div style="font-size:0.95rem; font-weight:600; color:var(--fg); margin-bottom:3px;">Camera + Flashlight</div>
-              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Cover the lens completely with your fingertip. Keep it there until the task ends.</div>
+              <div style="font-size:0.95rem; font-weight:600; color:var(--fg); margin-bottom:3px;">One finger stays on the camera</div>
+              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Hold the phone in one hand with that hand's index finger covering the camera and flash. Keep it there from the sensor check until the task ends — including between intervals.</div>
             </div>
           </div>
           <div style="display:flex; align-items:flex-start; gap:14px; margin-bottom:18px;">
             <div style="width:36px; height:36px; border-radius:50%; background:var(--bg-elevated); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem;">🤚</div>
             <div>
-              <div style="font-size:0.95rem; font-weight:600; color:var(--fg); margin-bottom:3px;">Stay still</div>
-              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Don't take your pulse with your other hand. Rest both hands still.</div>
+              <div style="font-size:0.95rem; font-weight:600; color:var(--fg); margin-bottom:3px;">Use your other hand for the screen</div>
+              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Tap, type, and swipe with your free hand. Don't take your pulse with it — keep it relaxed.</div>
             </div>
           </div>
           <div style="display:flex; align-items:flex-start; gap:14px;">
@@ -281,9 +286,16 @@ const HCT = (function() {
   // first interval can attach callbacks without a camera restart.
   // ----------------------------------------------------------
   async function runSensorCheck() {
-    if (!core) {
+    if (isPreview || !core) {
       // Preview / no-core simulation: skip with a brief delay so the screen
       // is visible long enough to confirm flow.
+      //
+      // v3 fix: previously this only checked `!core`. But ePATCore exists in
+      // preview mode (the build inlines it whenever needsCore is true), so
+      // !core was false and we fell through to the real camera path. The
+      // builder iframe would prompt for camera permissions and try to do
+      // actual PPG. The right gate is `isPreview || !core` — preview wants
+      // simulation regardless of whether the core happens to be loaded.
       show("screen-hct-sensor-check");
       const btn = document.getElementById("hct-sensor-start-btn");
       if (btn) {
@@ -390,8 +402,19 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // INTERVAL — counting phase. Unchanged from v1 except for one minor
-  // cleanup: the entry call no longer references baseline state.
+  // INTERVAL — counting phase.
+  //
+  // v3 changes:
+  //   - Progress ring reset uses transition-disable/snap/re-enable so the
+  //     ring doesn't visibly "rewind" between intervals (which was distracting
+  //     enough to pull people out of the counting frame).
+  //   - Re-acquisition gate: before starting the timer, we wait for SQI on
+  //     the active channel to be good. Without this, a participant who
+  //     briefly lost finger contact during count entry could start counting
+  //     before the BeatDetector has stabilized, missing or duplicating
+  //     early beats. The gate is brief in the typical case (signal already
+  //     good → starts immediately) and capped at 10s with a fallback that
+  //     starts anyway and lets the per-interval retry budget handle it.
   // ----------------------------------------------------------
   async function startInterval() {
     const item = intervalSchedule[currentIntervalIndex];
@@ -402,8 +425,6 @@ const HCT = (function() {
     intRecordedHR = []; intIbiSeries = []; intIbiFlags = [];
     intCleanBeats = 0; intFlaggedBeats = 0; intLastIbi = 0;
     intSqiTimeSeries = []; intSqiBadSeconds = 0; intLastSqiCheckTime = performance.now();
-    intStartedAt = new Date().toISOString();
-    intStartedPerfMs = performance.now();
     intervalRunning = true;
 
     const labelEl = document.getElementById("hct-interval-label");
@@ -423,12 +444,31 @@ const HCT = (function() {
     const ringWrap = document.getElementById("hct-counting-ring-wrap");
     if (ringWrap) ringWrap.style.display = SHOW_PROGRESS_RING ? "flex" : "none";
 
+    // Ring reset without animation. The CSS on .progress-ring .fill includes
+    // a transition on stroke-dashoffset so the ring animates as it fills
+    // during counting. But that means resetting it from 0 (full) back to
+    // circ (empty) at the start of an interval ALSO animates — a visible
+    // counter-clockwise "rewind" that's distracting and methodologically
+    // bad (it cues "the thing is starting over"). We disable the transition,
+    // snap to empty, force a reflow so the snap commits, then re-enable.
     const ringFill = document.getElementById("hct-counting-progress-circle");
     const circ = 2 * Math.PI * 85;
-    if (ringFill) ringFill.style.strokeDashoffset = circ;
+    if (ringFill) {
+      const prevTransition = ringFill.style.transition;
+      ringFill.style.transition = 'none';
+      ringFill.style.strokeDashoffset = circ;
+      // Reading offsetWidth forces the browser to commit the layout/style
+      // change synchronously. Without this, restoring transition on the
+      // next line could re-animate from the OLD offset to the new one.
+      void ringFill.offsetWidth;
+      ringFill.style.transition = prevTransition;
+    }
 
-    if (!core) {
-      // Preview simulation
+    if (isPreview || !core) {
+      // Preview / no-core simulation — see runSensorCheck for rationale.
+      // No re-acquisition gate (no real signal to acquire).
+      intStartedAt = new Date().toISOString();
+      intStartedPerfMs = performance.now();
       const FAKE_BPM = 72;
       const fakeBeats = Math.round((item.duration_sec * FAKE_BPM) / 60);
       const start = Date.now();
@@ -456,18 +496,24 @@ const HCT = (function() {
     // from the sensor check, so no camera restart.
     core.BeatDetector.setCallbacks({
       onBeatCb: (beat) => {
-        intRecordedHR.push(beat.instantBPM);
+        // Only buffer beats once we've actually started counting (intStartedPerfMs > 0).
+        // Beats arriving during the re-acquisition wait are intentionally ignored.
+        if (intStartedPerfMs > 0) {
+          intRecordedHR.push(beat.instantBPM);
+          processIbi(beat);
+        }
         lastBeatPerfTime = performance.now();
-        processIbi(beat);
       },
       onFingerChangeCb: (p) => { isFingerPresent = p; updateSensorWarning(); },
       onSqiUpdateCb: (sqi) => {
         currentSqiValue = sqi;
         const now = performance.now();
-        intSqiTimeSeries.push({ t: Math.round(now - intStartedPerfMs), sqi });
-        if (now - intLastSqiCheckTime > 0) {
-          if (sqi < SQI_WARN) intSqiBadSeconds += (now - intLastSqiCheckTime) / 1000;
-          intLastSqiCheckTime = now;
+        if (intStartedPerfMs > 0) {
+          intSqiTimeSeries.push({ t: Math.round(now - intStartedPerfMs), sqi });
+          if (now - intLastSqiCheckTime > 0) {
+            if (sqi < SQI_WARN) intSqiBadSeconds += (now - intLastSqiCheckTime) / 1000;
+            intLastSqiCheckTime = now;
+          }
         }
         updateSensorWarning();
       }
@@ -476,22 +522,56 @@ const HCT = (function() {
     startSensorWatchdog();
     if (core.MotionDetector) core.MotionDetector.start();
 
-    intervalTimer = setInterval(() => {
-      const elapsed = (performance.now() - intStartedPerfMs) / 1000;
-      const remaining = Math.max(0, item.duration_sec - elapsed);
+    // ── Re-acquisition gate ────────────────────────────────────────────
+    // Wait until SQI on the active channel is good before starting the
+    // counting timer. In the common case (participant kept their finger on
+    // throughout, signal is already good), this gate fires within ~250ms
+    // and the timer starts essentially immediately. In the bad case
+    // (finger lifted during count entry), this gives the BeatDetector a
+    // moment to re-stabilize before we start counting.
+    //
+    // Hard cap: REACQ_TIMEOUT_MS. If we still don't have signal, we start
+    // anyway and let the existing per-interval retry budget catch it.
+    // This is the same defensive pattern as the sensor-check screen at
+    // task entry — never trap the participant in a forever-waiting state.
+    const REACQ_TIMEOUT_MS = 10000;
+    const reacqStartMs = performance.now();
+    intStartedPerfMs = 0;  // 0 means "not started yet" — gates the buffer pushes above
 
-      if (timerEl && SHOW_TIMER) {
-        const m = Math.floor(elapsed / 60), s = Math.floor(elapsed % 60);
-        timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
-      }
-      if (ringFill) ringFill.style.strokeDashoffset = circ * (1 - Math.min(1, elapsed / item.duration_sec));
+    const beginCounting = () => {
+      // Ignore double-fire (gate met just as timeout fires)
+      if (intStartedPerfMs > 0) return;
+      intStartedAt = new Date().toISOString();
+      intStartedPerfMs = performance.now();
+      intLastSqiCheckTime = intStartedPerfMs;
 
-      if (remaining <= 0) {
-        clearInterval(intervalTimer);
-        const actualBeats = intRecordedHR.length;
-        endInterval(item, actualBeats);
+      intervalTimer = setInterval(() => {
+        const elapsed = (performance.now() - intStartedPerfMs) / 1000;
+        const remaining = Math.max(0, item.duration_sec - elapsed);
+
+        if (timerEl && SHOW_TIMER) {
+          const m = Math.floor(elapsed / 60), s = Math.floor(elapsed % 60);
+          timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
+        }
+        if (ringFill) ringFill.style.strokeDashoffset = circ * (1 - Math.min(1, elapsed / item.duration_sec));
+
+        if (remaining <= 0) {
+          clearInterval(intervalTimer);
+          const actualBeats = intRecordedHR.length;
+          endInterval(item, actualBeats);
+        }
+      }, 250);
+    };
+
+    // Poll for re-acquisition every 200ms.
+    const reacqPoll = setInterval(() => {
+      const elapsed = performance.now() - reacqStartMs;
+      const ready = isFingerPresent && currentSqiValue >= SQI_WARN;
+      if (ready || elapsed >= REACQ_TIMEOUT_MS) {
+        clearInterval(reacqPoll);
+        beginCounting();
       }
-    }, 250);
+    }, 200);
   }
 
   // ----------------------------------------------------------
@@ -554,9 +634,14 @@ const HCT = (function() {
     const labelEl = document.getElementById("hct-count-label");
 
     if (labelEl) {
+      // v3: previously this said "Interval complete (35s)". Showing the
+      // duration AFTER counting still leaks information across intervals
+      // — by interval 3 the participant has seen all the durations and
+      // can map their counts back to "the 25s one was easiest". Just say
+      // it's complete.
       labelEl.textContent = item.isPractice
         ? "Practice complete"
-        : `Interval complete (${item.duration_sec}s)`;
+        : `Interval complete`;
     }
 
     input.value = "";
@@ -667,16 +752,30 @@ const HCT = (function() {
     if (currentIntervalIndex >= intervalSchedule.length) {
       finishAndAdvance();
     } else {
-      // Pre-interval breathing room
+      // Pre-interval breathing room.
+      // v3: the duration number is intentionally NOT shown. Telling the
+      // participant "next interval: 35 seconds" gives them everything they
+      // need to time-count from a known resting HR (Brener & Ring 2018).
+      // The fact that the next interval is some duration is communicated
+      // by the act of starting it; the exact number is contamination.
+      //
+      // Also v3: the finger-on-camera reminder is more visible here because
+      // this is when participants are most likely to lift the finger off
+      // (between-interval shifts, scratching, getting comfortable). The
+      // re-acquisition gate in startInterval() catches the worst cases,
+      // but reminding them up front avoids the gate firing in the first
+      // place.
       show("screen-onboarding");
       const container = document.getElementById("onboarding-container");
       const nextBtn = document.getElementById("onboarding-next-btn");
-      const next = intervalSchedule[currentIntervalIndex];
       container.innerHTML = `
         <div style="text-align:center; padding:48px 0;">
           <h1 style="margin-bottom:16px;">Get Ready</h1>
-          <p>Next interval: <strong style="color:var(--fg);">${next.duration_sec} seconds</strong></p>
-          <p style="margin-top:8px; color:var(--fg-muted); font-size:0.9rem;">Keep your finger on the camera. Begin counting when you tap below.</p>
+          <p style="margin-bottom:24px;">Begin counting when you tap below.</p>
+          <div style="display:inline-flex; align-items:center; gap:8px; padding:10px 14px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:8px; font-size:0.85rem; color:var(--fg-muted);">
+            <span style="font-size:1rem;">📷</span>
+            <span>Make sure your finger is back on the camera</span>
+          </div>
         </div>
       `;
       nextBtn.textContent = "Start counting →";

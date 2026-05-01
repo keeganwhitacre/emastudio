@@ -191,7 +191,7 @@ const ePAT = (function() {
     const circ = 2 * Math.PI * 85;
     const DUR = isPreview ? 3 : 120;
 
-    if (!core) {
+    if (isPreview || !core) {
       // Preview / no-core simulation
       let elapsed = 0;
       bpmEl.textContent = '65';
