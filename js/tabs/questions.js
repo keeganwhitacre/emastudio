@@ -47,6 +47,7 @@ function buildQCard(q, index, displayNum) {
   if (q.type === 'heart_rate') {
     if (!q.duration_sec) q.duration_sec = 30;
     if (!q.report_as)    q.report_as    = 'bpm';
+    if (q.display_bpm === undefined) q.display_bpm = true;   // backward-compat default
   }
 
   if (q.type === 'page_break') {
@@ -179,6 +180,18 @@ function buildHeartRateFields(q) {
         <input type="number" class="hr-duration" value="${q.duration_sec || 30}" min="10" max="120" step="5">
         <div class="field-hint">10–120 sec. Longer = more stable BPM estimate.</div>
       </div>
+      <div class="toggle-row" style="margin-top:12px;">
+      <span class="toggle-label">Show BPM to participant</span>
+      <label class="toggle">
+        <input type="checkbox" class="hr-display-bpm" ${q.display_bpm !== false ? 'checked' : ''}>
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+    <div class="field-hint" style="margin-top:-4px;">
+      Turn off when this question precedes a task that should not be biased by
+      the participant knowing their heart rate (e.g. heartbeat counting tasks).
+      The BPM is still recorded in the data; only the on-screen number is hidden.
+    </div>
       <div class="field-group">
         <label class="field-label">Report As</label>
         <select class="hr-report-as" style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-family:var(--font);font-size:0.88rem;outline:none;">
@@ -207,6 +220,11 @@ function bindHeartRateFields(card, q) {
     schedulePreview();
   });
   if (repEl) repEl.addEventListener('change', e => { q.report_as = e.target.value; schedulePreview(); });
+  const dispEl = card.querySelector('.hr-display-bpm');
+  if (dispEl) dispEl.addEventListener('change', e => {
+    q.display_bpm = e.target.checked;
+    schedulePreview();
+  });
 }
 
 // ---------------------------------------------------------------------------

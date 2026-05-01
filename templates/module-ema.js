@@ -310,9 +310,10 @@ function interpolate(text, responses) {
   }
 
   function buildHeartRateCapture(q, wrapper, checkSubmit) {
-    const core = window.ePATCore;
+     const core = window.ePATCore;
     const durationSec = q.duration_sec || 30;
- 
+    const displayBpm  = q.display_bpm !== false;   // backward-compat default ON
+
     // Start with null so required check blocks Next until capture completes
     if (valueOf(q.id) === undefined) recordResponse(q.id, null);
  
@@ -330,10 +331,10 @@ function interpolate(text, responses) {
           <circle class="track" cx="90" cy="90" r="85"/>
           <circle class="fill" id="hr-ring-${uid}" cx="90" cy="90" r="85"/>
         </svg>
-        <div class="baseline-bpm-box">
-          <div class="baseline-bpm-number" id="hr-bpm-${uid}" style="font-size:2.8rem;">--</div>
-          <div class="baseline-bpm-label">BPM</div>
-        </div>
+        <div class="baseline-bpm-box" style="${displayBpm ? '' : 'display:none;'}">
+            <div class="baseline-bpm-number" id="hr-bpm-${uid}" style="font-size:2.8rem;">--</div>
+            <div class="baseline-bpm-label">BPM</div>
+          </div>
       </div>
       <p style="font-size:0.88rem;color:var(--fg-muted);text-align:center;margin:0;">
         Cover the rear <strong style="color:var(--fg);">camera + flashlight</strong> with your fingertip
@@ -376,7 +377,9 @@ function interpolate(text, responses) {
         if (t >= durationSec) {
           clearInterval(sim);
           recordResponse(q.id, fakeBpm);
-          if (statusEl) statusEl.textContent = `Captured: ${fakeBpm} BPM`;
+          if (statusEl) statusEl.textContent = displayBpm
+          ? `Captured: ${fakeBpm} BPM`
+          : `Capture complete`;
           checkSubmit();
         }
       }, 1000);
@@ -411,11 +414,17 @@ function interpolate(text, responses) {
             ? Math.round((bpms.reduce((a,b)=>a+b,0) / bpms.length) * 10) / 10
             : null;
           recordResponse(q.id, avg);
-          if (bpmEl && avg) bpmEl.textContent = String(Math.round(avg));
+          if (bpmEl && avg && displayBpm) bpmEl.textContent = String(Math.round(avg));
           if (statusEl) {
-             statusEl.textContent = avg ? `Captured: ${Math.round(avg)} BPM` : 'No signal detected';
-             statusEl.style.color = 'var(--fg-muted)';
+          if (avg && displayBpm) {
+            statusEl.textContent = `Captured: ${Math.round(avg)} BPM`;
+          } else if (avg) {
+            statusEl.textContent = `Capture complete`;
+          } else {
+            statusEl.textContent = 'No signal detected';
           }
+          statusEl.style.color = 'var(--fg-muted)';
+        }
           if (previewCanvas) {
             previewCanvas.style.borderColor = 'var(--accent-green)';
           }
@@ -468,9 +477,9 @@ function interpolate(text, responses) {
     core.BeatDetector.start({
       video: videoEl, canvas: canvasEl,
       onBeatCb: (beat) => {
-        bpms.push(beat.averageBPM);
-        if (bpmEl) bpmEl.textContent = String(Math.round(beat.averageBPM));
-      },
+          bpms.push(beat.averageBPM);
+          if (bpmEl && displayBpm) bpmEl.textContent = String(Math.round(beat.averageBPM));
+        },
       onFingerChangeCb: (present) => {
         isFingerPresent = present;
         evaluateCaptureStart();

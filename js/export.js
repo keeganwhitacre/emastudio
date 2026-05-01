@@ -215,6 +215,23 @@ function buildHtmlShell({ cfg, themeCSS, includeEpatCore, configTag, coreTag, st
     </div>
   </div>
 
+  <div class="screen" id="screen-hct-sensor-check">
+    <div style="position:absolute;top:calc(env(safe-area-inset-top,24px) + 24px);width:100%;text-align:center;">
+      <p class="label" style="color:var(--fg-muted);">Sensor check</p>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;gap:24px;padding:0 8px;">
+      <h1 style="margin:0;font-weight:600;text-align:center;">Place your finger on the camera</h1>
+      <p style="color:var(--fg-muted); text-align:center; max-width:300px; margin:0;">
+        Cover the lens and the flash completely with your fingertip. Hold steady — counting starts when the signal looks good.
+      </p>
+      <!-- Note: the sensor-preview-circle <canvas> defined inside the
+           sensor-warning-overlay block is shared across screens. The
+           runtime resizes it on each screen entry. -->
+      <p id="hct-sensor-status" style="color:var(--fg-muted); font-size:0.85rem; min-height:1.2em; margin:0; text-align:center;"></p>
+    </div>
+    <button class="btn btn-primary btn-block" id="hct-sensor-start-btn" disabled>Checking signal…</button>
+  </div>
+
   <div class="screen" id="screen-trial">
     <div class="movement-warning" id="trial-movement-warning">Keep still</div>
     <div class="trial-header" style="text-align:center;position:absolute;top:calc(env(safe-area-inset-top,24px) + 24px);width:100%;">
