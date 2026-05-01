@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <title>The Test Study</title>
-  <script>window.__CONFIG__ = {"schema_version":"1.5.0","study":{"name":"The Test Study","institution":"","theme":"dark","accent_color":"#9929bd","output_format":"json","completion_lock":true,"resume_enabled":true,"webhook_url":"https://script.google.com/macros/s/AKfycbyQdRwOqU_TIA3qe3l9eXY-qtYtluYDq3Lb7xZIFyKypRSlntYsMnNqgE9dxFMGslM/exec","greetings":{"w1":"Good Morning","w2":"Check-In","w3":"Good Evening"}},"onboarding":{"enabled":true,"ask_schedule":false,"consent_text":"<h3>1. Purpose</h3>\n<p>This research investigates daily experiences and mood in real-world settings.</p>\n<h3>2. What You Will Do</h3>\n<p>You will complete brief daily check-ins for the duration of the study.</p>\n<h3>3. Confidentiality</h3>\n<p>All data are stored under a participant ID number with no identifying information.</p>\n<h3>4. Contact</h3>\n<p>For questions about this study, contact the research team.</p>"},"ema":{"randomize_questions":false,"questions":[{"id":"q_z1e8qj","type":"slider","text":"How many hours of sleep did you get last night?","min":0,"max":12,"step":1,"unit":null,"anchors":["",""],"required":true,"condition":null,"block":"pre","windows":["w1"]},{"id":"q_ah1orl","type":"page_break","windows":null},{"id":"q_fk4xgy","type":"affect_grid","text":"Right now, how are you feeling?","valence_labels":["Unpleasant","Pleasant"],"arousal_labels":["Deactivated","Activated"],"show_quadrant_labels":true,"required":true,"condition":null,"block":"pre","windows":null},{"id":"q_7sdasa","type":"page_break","windows":null},{"id":"q3","type":"choice","text":"What are you doing right now?","options":["Resting","Working / Studying","Socializing","Exercising","Eating","Commuting","Other"],"required":true,"condition":null,"block":"pre","windows":null},{"id":"q_pq3jz8","type":"page_break","windows":null},{"id":"q_qtbojv","type":"checkbox","text":"Who are you with right now?","options":["Friends","Family","SO","Coworkers","Strangers","Alone"],"required":true,"condition":null,"block":"pre","windows":null},{"id":"q_l9rlbj","type":"page_break","windows":null},{"id":"q_8ggsso","type":"heart_rate","text":"Measuring your heart rate…","duration_sec":45,"report_as":"bpm","required":true,"condition":null,"block":"pre","windows":null},{"id":"q_bh0oco","type":"page_break","windows":null},{"id":"q_o2k8yg","type":"text","text":"Your BPM was {{q_8ggsso}}, any idea why?","required":true,"condition":{"logical_op":"AND","rules":[{"question_id":"q_8ggsso","operator":"gt","value":85}]},"block":"pre","windows":null},{"id":"q_jqb5oz","type":"page_break","windows":null},{"id":"q_shia6g","type":"choice","text":"How do you think you did on that task?","options":["Bad","Okay","Good","Great"],"required":true,"condition":null,"block":"post","windows":["w1"]},{"id":"q_f3fzl9","type":"page_break","windows":null},{"id":"q_gt926d","type":"slider","text":"Overall - how would you rate today?","min":0,"max":10,"step":1,"unit":null,"anchors":["",""],"required":true,"condition":null,"block":"pre","windows":["w3"]}],"scheduling":{"study_days":5,"daily_prompts":3,"days_of_week":[1,2,3,4,5],"windows":[{"id":"w1","label":"Morning","start":"08:00","end":"10:00","phases":{"pre":true,"task":"hct","post":false},"phase_sequence":[{"kind":"ema","block":"pre"},{"kind":"task","id":"hct","condition":null}]},{"id":"w2","label":"Afternoon","start":"13:00","end":"15:00","phases":{"pre":true,"task":null,"post":false},"phase_sequence":[{"kind":"ema","block":"pre"}]},{"id":"w3","label":"Evening","start":"19:00","end":"21:00","phases":{"pre":true,"task":null,"post":false},"phase_sequence":[{"kind":"ema","block":"pre"}]}],"timing":{"expiry_minutes":60,"grace_minutes":10}}},"modules":{"hct":{"intervals":[25,35,45],"randomize_order":true,"include_practice":true,"practice_duration_sec":15,"instruction_variant":"count","instructions":"","show_timer":false,"show_progress_ring":true,"confidence_ratings":true,"body_map":true,"body_map_every":4,"retry_budget":10},"hr_capture":{"enabled":true}}};</script>
+  <script>window.__CONFIG__ = {"schema_version":"1.5.0","study":{"name":"The Test Study","institution":"","theme":"dark","accent_color":"#9929bd","output_format":"json","completion_lock":true,"resume_enabled":true,"webhook_url":"https://script.google.com/macros/s/AKfycbyQdRwOqU_TIA3qe3l9eXY-qtYtluYDq3Lb7xZIFyKypRSlntYsMnNqgE9dxFMGslM/exec","greetings":{"w1":"Good Morning","w2":"Check-In","w3":"Good Evening"}},"onboarding":{"enabled":true,"ask_schedule":false,"consent_text":"<h3>1. Purpose</h3>\n<p>This research investigates daily experiences and mood in real-world settings.</p>\n<h3>2. What You Will Do</h3>\n<p>You will complete brief daily check-ins for the duration of the study.</p>\n<h3>3. Confidentiality</h3>\n<p>All data are stored under a participant ID number with no identifying information.</p>\n<h3>4. Contact</h3>\n<p>For questions about this study, contact the research team.</p>"},"ema":{"randomize_questions":false,"questions":[{"id":"q_z1e8qj","type":"slider","text":"How many hours of sleep did you get last night?","min":0,"max":12,"step":1,"unit":null,"anchors":["",""],"required":true,"condition":null,"block":"pre","windows":["w1"]},{"id":"q_ah1orl","type":"page_break","windows":null},{"id":"q_fk4xgy","type":"affect_grid","text":"Right now, how are you feeling?","valence_labels":["Unpleasant","Pleasant"],"arousal_labels":["Deactivated","Activated"],"show_quadrant_labels":true,"required":true,"condition":null,"block":"pre","windows":null},{"id":"q_7sdasa","type":"page_break","windows":null},{"id":"q3","type":"choice","text":"What are you doing right now?","options":["Resting","Working / Studying","Socializing","Exercising","Eating","Commuting","Other"],"required":true,"condition":null,"block":"pre","windows":null},{"id":"q_pq3jz8","type":"page_break","windows":null},{"id":"q_qtbojv","type":"checkbox","text":"Who are you with right now?","options":["Friends","Family","SO","Coworkers","Strangers","Alone"],"required":true,"condition":null,"block":"pre","windows":null},{"id":"q_l9rlbj","type":"page_break","windows":null},{"id":"q_8ggsso","type":"heart_rate","text":"Measuring your heart rate…","duration_sec":45,"report_as":"bpm","required":true,"condition":null,"block":"pre","windows":null,"display_bpm":false},{"id":"q_bh0oco","type":"page_break","windows":null},{"id":"q_o2k8yg","type":"text","text":"Your BPM was {{q_8ggsso}}, any idea why?","required":true,"condition":{"logical_op":"AND","rules":[{"question_id":"q_8ggsso","operator":"gt","value":85}]},"block":"pre","windows":null},{"id":"q_jqb5oz","type":"page_break","windows":null},{"id":"q_shia6g","type":"choice","text":"How do you think you did on that task?","options":["Bad","Okay","Good","Great"],"required":true,"condition":null,"block":"post","windows":["w1"]},{"id":"q_f3fzl9","type":"page_break","windows":null},{"id":"q_gt926d","type":"slider","text":"Overall - how would you rate today?","min":0,"max":10,"step":1,"unit":null,"anchors":["",""],"required":true,"condition":null,"block":"pre","windows":["w3"]}],"scheduling":{"study_days":5,"daily_prompts":3,"days_of_week":[1,2,3,4,5],"windows":[{"id":"w1","label":"Morning","start":"08:00","end":"10:00","phases":{"pre":true,"task":"hct","post":false},"phase_sequence":[{"kind":"ema","block":"pre"},{"kind":"task","id":"hct","condition":null}]},{"id":"w2","label":"Afternoon","start":"13:00","end":"15:00","phases":{"pre":true,"task":null,"post":false},"phase_sequence":[{"kind":"ema","block":"pre"}]},{"id":"w3","label":"Evening","start":"19:00","end":"21:00","phases":{"pre":true,"task":null,"post":false},"phase_sequence":[{"kind":"ema","block":"pre"}]}],"timing":{"expiry_minutes":60,"grace_minutes":10}}},"modules":{"hct":{"intervals":[25,35,45],"randomize_order":true,"include_practice":true,"practice_duration_sec":15,"instruction_variant":"count","instructions":"","show_timer":false,"show_progress_ring":true,"confidence_ratings":true,"body_map":true,"body_map_every":4,"retry_budget":10},"hr_capture":{"enabled":true}}};</script>
   <script>
 /* ============================================================
  * epat-core.js  —  v5 (Optimized)
@@ -1157,6 +1157,23 @@
         <div class="baseline-bpm-box"><div class="baseline-bpm-number" id="baseline-bpm">--</div><div class="baseline-bpm-label">BPM</div></div>
       </div>
     </div>
+  </div>
+
+  <div class="screen" id="screen-hct-sensor-check">
+    <div style="position:absolute;top:calc(env(safe-area-inset-top,24px) + 24px);width:100%;text-align:center;">
+      <p class="label" style="color:var(--fg-muted);">Sensor check</p>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;gap:24px;padding:0 8px;">
+      <h1 style="margin:0;font-weight:600;text-align:center;">Place your finger on the camera</h1>
+      <p style="color:var(--fg-muted); text-align:center; max-width:300px; margin:0;">
+        Cover the lens and the flash completely with your fingertip. Hold steady — counting starts when the signal looks good.
+      </p>
+      <!-- Note: the sensor-preview-circle <canvas> defined inside the
+           sensor-warning-overlay block is shared across screens. The
+           runtime resizes it on each screen entry. -->
+      <p id="hct-sensor-status" style="color:var(--fg-muted); font-size:0.85rem; min-height:1.2em; margin:0; text-align:center;"></p>
+    </div>
+    <button class="btn btn-primary btn-block" id="hct-sensor-start-btn" disabled>Checking signal…</button>
   </div>
 
   <div class="screen" id="screen-trial">
@@ -2640,9 +2657,10 @@ function interpolate(text, responses) {
   }
 
   function buildHeartRateCapture(q, wrapper, checkSubmit) {
-    const core = window.ePATCore;
+     const core = window.ePATCore;
     const durationSec = q.duration_sec || 30;
- 
+    const displayBpm  = q.display_bpm !== false;   // backward-compat default ON
+
     // Start with null so required check blocks Next until capture completes
     if (valueOf(q.id) === undefined) recordResponse(q.id, null);
  
@@ -2660,10 +2678,10 @@ function interpolate(text, responses) {
           <circle class="track" cx="90" cy="90" r="85"/>
           <circle class="fill" id="hr-ring-${uid}" cx="90" cy="90" r="85"/>
         </svg>
-        <div class="baseline-bpm-box">
-          <div class="baseline-bpm-number" id="hr-bpm-${uid}" style="font-size:2.8rem;">--</div>
-          <div class="baseline-bpm-label">BPM</div>
-        </div>
+        <div class="baseline-bpm-box" style="${displayBpm ? '' : 'display:none;'}">
+            <div class="baseline-bpm-number" id="hr-bpm-${uid}" style="font-size:2.8rem;">--</div>
+            <div class="baseline-bpm-label">BPM</div>
+          </div>
       </div>
       <p style="font-size:0.88rem;color:var(--fg-muted);text-align:center;margin:0;">
         Cover the rear <strong style="color:var(--fg);">camera + flashlight</strong> with your fingertip
@@ -2706,7 +2724,9 @@ function interpolate(text, responses) {
         if (t >= durationSec) {
           clearInterval(sim);
           recordResponse(q.id, fakeBpm);
-          if (statusEl) statusEl.textContent = `Captured: ${fakeBpm} BPM`;
+          if (statusEl) statusEl.textContent = displayBpm
+          ? `Captured: ${fakeBpm} BPM`
+          : `Capture complete`;
           checkSubmit();
         }
       }, 1000);
@@ -2741,11 +2761,17 @@ function interpolate(text, responses) {
             ? Math.round((bpms.reduce((a,b)=>a+b,0) / bpms.length) * 10) / 10
             : null;
           recordResponse(q.id, avg);
-          if (bpmEl && avg) bpmEl.textContent = String(Math.round(avg));
+          if (bpmEl && avg && displayBpm) bpmEl.textContent = String(Math.round(avg));
           if (statusEl) {
-             statusEl.textContent = avg ? `Captured: ${Math.round(avg)} BPM` : 'No signal detected';
-             statusEl.style.color = 'var(--fg-muted)';
+          if (avg && displayBpm) {
+            statusEl.textContent = `Captured: ${Math.round(avg)} BPM`;
+          } else if (avg) {
+            statusEl.textContent = `Capture complete`;
+          } else {
+            statusEl.textContent = 'No signal detected';
           }
+          statusEl.style.color = 'var(--fg-muted)';
+        }
           if (previewCanvas) {
             previewCanvas.style.borderColor = 'var(--accent-green)';
           }
@@ -2798,9 +2824,9 @@ function interpolate(text, responses) {
     core.BeatDetector.start({
       video: videoEl, canvas: canvasEl,
       onBeatCb: (beat) => {
-        bpms.push(beat.averageBPM);
-        if (bpmEl) bpmEl.textContent = String(Math.round(beat.averageBPM));
-      },
+          bpms.push(beat.averageBPM);
+          if (bpmEl && displayBpm) bpmEl.textContent = String(Math.round(beat.averageBPM));
+        },
       onFingerChangeCb: (present) => {
         isFingerPresent = present;
         evaluateCaptureStart();
@@ -3045,60 +3071,50 @@ function interpolate(text, responses) {
 // ==========================================================
 // HCT TASK — Heartbeat Counting Task (Schandry, 1981)
 // ==========================================================
-// Mirrors module-epat.js structure. Reuses ePATCore (BeatDetector,
-// WakeLockCtrl, MotionDetector) for identical PPG/quality behavior.
+// v2 — restructured flow. See bottom of file for changelog vs. v1.
 //
 // LIFECYCLE (exposed):
-//   { startBaseline }  — called by the phase dispatcher in study-base.js
+//   { startBaseline }  — name preserved for compatibility with the phase
+//                        dispatcher in study-base.js. Despite the name there
+//                        is no longer any baseline HR capture; the function
+//                        kicks off the full HCT flow.
 //
 // RUNTIME FLOW:
-//   1. screen-baseline   — resting HR capture (uses screen-baseline shell)
-//   2. screen-onboarding — pre-task instructions (reuses shell, custom content)
+//   1. screen-onboarding         — instructions (camera off, just reading)
+//   2. screen-hct-sensor-check   — finger placement verification (no BPM shown)
+//                                  Camera on. Once finger detected and SQI
+//                                  is good for 2 consecutive 1-second checks,
+//                                  participant taps "Start counting" and the
+//                                  first interval begins.
 //   3. for each interval (with optional practice first):
-//        a. screen-hct-counting — count silently for interval duration
-//                                 BeatDetector running, SQI watchdog active
-//        b. screen-hct-count    — numeric input for reported count
+//        a. screen-hct-counting  — count silently for interval duration
+//                                  BeatDetector running in background, SQI
+//                                  watchdog active. NO BPM EVER DISPLAYED.
+//        b. screen-hct-count     — numeric input for reported count
 //        c. (optional) confidence slider — reuses screen-onboarding shell
-//        d. (optional) body map — reuses screen-bodymap
+//        d. (optional) body map  — reuses screen-bodymap
 //   4. consolidate raw entries into a single hct_response envelope
 //   5. advancePhase()
 //
-// DATA SHAPE (final hct_response envelope):
-//   {
-//     type: 'hct_response',
-//     startedAt: ISO,
-//     baseline: { recordedHR: [..], totalBeats: N, finalSqi: x, ... },
-//     intervals: [
-//       {
-//         intervalIndex: 0, isPractice: false,
-//         duration_sec: 25, durationMs_actual: 25012,   // measured
-//         reportedCount: 23, actualBeats: 27,
-//         accuracy: 0.852,                              // 1 - |a-r|/a
-//         confidence: 6, bodyPos: 1,
-//         recordedHR: [72, 71, ...], ibi_series: [810, 795, ...],
-//         sqi: 0.012, qualitySummary: { ... },
-//         startedAt: ISO, endedAt: ISO,
-//       }, ...
-//     ],
-//     practices: [...],   // same shape, isPractice: true
-//     summary: {
-//       valid_intervals, practice_intervals,
-//       mean_accuracy,            // canonical Schandry score
-//       mean_confidence,
-//       interoceptive_awareness,  // Pearson r(accuracy, confidence) — null if confidence off or N<3
-//       mean_sqi,
-//       baseline_beats, baseline_sqi
-//     }
-//   }
+// METHODOLOGICAL NOTES:
+//   - No pre-task BPM display. Showing participants their HR before a
+//     counting task biases their estimates toward correct arithmetic
+//     rather than interoception (Brener & Ring, 2018; Desmedt et al.,
+//     2018). The sensor-check screen verifies finger placement and signal
+//     quality but never surfaces the BPM number.
+//   - No baseline HR collection in this module. If a study needs HR
+//     alongside HCT, run it in a separate session, OR include a
+//     heart_rate EMA question with display_bpm: false (added in v2 of
+//     module-ema.js — see that module for the per-question option).
+//   - The detector keeps running between sensor check and the first
+//     counting interval, just like before — no camera cold-start cost
+//     between the two phases.
 // ==========================================================
 const HCT = (function() {
   const core = window.ePATCore;
   const cfg = config.modules?.hct || {};
 
   // ── Configurable parameters ────────────────────────────────────────────────
-  // Schandry's classic intervals are [25, 35, 45, 50, 55, 100]. Reduced default
-  // here keeps within-session burden ~2 min. Parsed from the comma-separated
-  // string emitted by the builder.
   const DEFAULT_INTERVALS = [25, 35, 45];
   const RAW_INTERVALS     = Array.isArray(cfg.intervals) ? cfg.intervals : DEFAULT_INTERVALS;
   const INTERVALS_SEC     = RAW_INTERVALS.filter(n => Number.isFinite(n) && n >= 5 && n <= 300);
@@ -3106,30 +3122,44 @@ const HCT = (function() {
   const RANDOMIZE         = cfg.randomize_order !== false;        // default ON
   const INCLUDE_PRACTICE  = cfg.include_practice !== false;       // default ON
   const PRACTICE_DUR_SEC  = cfg.practice_duration_sec || 15;
-  const SHOW_TIMER        = cfg.show_timer === true;              // default OFF (purist)
-  const SHOW_PROGRESS_RING= cfg.show_progress_ring !== false;     // default ON (subtle)
+  const SHOW_TIMER        = cfg.show_timer === true;              // default OFF
+  const SHOW_PROGRESS_RING= cfg.show_progress_ring !== false;     // default ON
   const CONF_RATINGS      = cfg.confidence_ratings !== false;     // default ON
   const BODY_MAP_EVERY    = cfg.body_map ? (cfg.body_map_every || 4) : Infinity;
   const INSTRUCTION_VARIANT = cfg.instruction_variant || 'count'; // 'count' | 'estimate'
-  const CUSTOM_INSTRUCTIONS = (cfg.instructions || '').trim();    // overrides default if set
+  const CUSTOM_INSTRUCTIONS = (cfg.instructions || '').trim();
   const RETRY_BUDGET      = cfg.retry_budget || 10;
 
-  // Shared SQI/IBI thresholds — same numbers ePAT uses, so behavior matches.
+  // Sensor-check parameters. The "ready to start" gate fires when SQI on the
+  // active channel exceeds SENSOR_CHECK_SQI_FLOOR for SENSOR_CHECK_GOOD_SECS
+  // consecutive seconds. The hard timeout is a safety net; if a participant
+  // simply cannot get a clean signal in MAX_SENSOR_CHECK_SEC seconds we let
+  // them proceed anyway and let the per-interval retry budget handle quality
+  // failures downstream.
+  const SENSOR_CHECK_SQI_FLOOR = 0.004;  // matches SQI_WARN in epat-core
+  const SENSOR_CHECK_GOOD_SECS = 2;      // 2 consecutive good seconds → ready
+  const MAX_SENSOR_CHECK_SEC   = 30;
+
+  // Shared SQI/IBI thresholds (same as ePAT/v5 core)
   const IBI_CHANGE_THRESHOLD = 0.30;
   const SQI_GOOD = 0.008, SQI_WARN = 0.004;
 
   // ── State ──────────────────────────────────────────────────────────────────
-  let baselineTimer = null, baselineBPMs = [], baselineStartTime = 0;
   let isFingerPresent = false, currentSqiValue = 0;
   let lastBeatPerfTime = performance.now(), sensorCheckInterval = null;
   let detectorRunning = false;
 
-  // Interval ordering: practice first (if any), then real intervals (possibly randomized)
+  // Sensor-check state
+  let sensorCheckTimer = null;
+  let sensorCheckGoodSecs = 0;
+  let sensorCheckStartTime = 0;
+  let sensorCheckResolve = null;
+
+  // Interval ordering and per-interval buffers
   let intervalSchedule = [];
   let currentIntervalIndex = 0;
   let retriesLeft = RETRY_BUDGET;
 
-  // Per-interval running buffers
   let intRecordedHR = [], intIbiSeries = [], intIbiFlags = [];
   let intCleanBeats = 0, intFlaggedBeats = 0, intLastIbi = 0;
   let intSqiTimeSeries = [], intSqiBadSeconds = 0, intLastSqiCheckTime = 0;
@@ -3139,14 +3169,12 @@ const HCT = (function() {
 
   // ----------------------------------------------------------
   // BUILD INTERVAL SCHEDULE
+  // Practice intervals are NOT randomized into the main set — they always
+  // come first, mirroring how ePAT handles two_phase_practice.
   // ----------------------------------------------------------
-  // Produces e.g. [{dur:15, isPractice:true}, {dur:35, ...}, {dur:25, ...}, ...]
-  // Practice intervals are NOT randomized into the main set — they always come
-  // first, which mirrors how ePAT handles two_phase_practice.
   function buildSchedule() {
     const real = INTERVALS_SEC.slice();
     if (RANDOMIZE) {
-      // Fisher-Yates shuffle
       for (let i = real.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [real[i], real[j]] = [real[j], real[i]];
@@ -3159,9 +3187,7 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // SENSOR WATCHDOG — copied verbatim from module-epat.js
-  // Identical UX with the existing ePAT overlay so participants
-  // experience the same warning behavior across tasks.
+  // SENSOR WATCHDOG — same as before (verbatim from v1).
   // ----------------------------------------------------------
   function startSensorWatchdog() {
     if (sensorCheckInterval) clearInterval(sensorCheckInterval);
@@ -3197,8 +3223,7 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // IBI QUALITY TRACKING — same logic as ePAT, but writes into
-  // the interval-scoped buffers.
+  // IBI QUALITY TRACKING — unchanged from v1.
   // ----------------------------------------------------------
   function processIbi(beat) {
     const ibiMs = beat.instantPeriod * 1000;
@@ -3216,10 +3241,31 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // PRE-TASK INSTRUCTIONS — reuses screen-onboarding shell
-  // Defaults track Schandry-derived wording. Researcher can override
-  // entirely via cfg.instructions, and pick wording variant for the
-  // count-vs-estimate methodological distinction.
+  // ENTRY POINT — exposed as startBaseline() for compatibility with the
+  // phase dispatcher, but no baseline is captured. Just wires up the
+  // schedule and shows instructions.
+  // ----------------------------------------------------------
+  async function startTask() {
+    intervalSchedule = buildSchedule();
+    currentIntervalIndex = 0;
+    retriesLeft = RETRY_BUDGET;
+
+    // Step 1: instructions screen. Camera is off — participant just reads.
+    showPreTaskInstructions(() => {
+      // Step 2: sensor check. Camera turns on here, not before.
+      runSensorCheck().then(() => {
+        // Step 3: first interval (practice if enabled, else real).
+        startInterval();
+      });
+    });
+  }
+
+  // ----------------------------------------------------------
+  // PRE-TASK INSTRUCTIONS — reuses screen-onboarding shell.
+  // Camera is OFF during this screen. Wording adjusted from v1: now tells
+  // participants what's about to happen ("After this screen, you'll do a
+  // quick sensor check, then the counting begins") instead of telling them
+  // to place their finger immediately.
   // ----------------------------------------------------------
   function showPreTaskInstructions(onContinue) {
     show("screen-onboarding");
@@ -3230,8 +3276,14 @@ const HCT = (function() {
       ? `Without taking your pulse or feeling for it, silently <strong>estimate</strong> how many heartbeats you feel during each timed interval. Do not guess based on time elapsed — only count what you actually feel.`
       : `Silently <strong>count</strong> the heartbeats you feel inside your body during each timed interval. Do not take your pulse or feel for it — count only what you can perceive internally.`;
 
-    // CUSTOM_INSTRUCTIONS (if set) replaces variantBody but keeps the camera/setup card.
     const bodyText = CUSTOM_INSTRUCTIONS || variantBody;
+
+    // Number of real intervals + practice notice. Helps participants calibrate
+    // expectations before the task starts ("how long is this going to take").
+    const realCount = INTERVALS_SEC.length;
+    const practiceNotice = INCLUDE_PRACTICE
+      ? `<p style="margin-bottom:24px; text-align:left; color:var(--fg-muted); font-size:0.9rem;">You'll start with one short practice interval (${PRACTICE_DUR_SEC}s), then ${realCount} real intervals. Total time: about ${Math.round((PRACTICE_DUR_SEC + INTERVALS_SEC.reduce((a,b)=>a+b,0))/60 + 1)} minute${realCount > 1 ? 's' : ''}.</p>`
+      : `<p style="margin-bottom:24px; text-align:left; color:var(--fg-muted); font-size:0.9rem;">${realCount} interval${realCount > 1 ? 's' : ''} total. Estimated time: about ${Math.round(INTERVALS_SEC.reduce((a,b)=>a+b,0)/60 + 1)} minute${realCount > 1 ? 's' : ''}.</p>`;
 
     container.innerHTML = `
       <div style="text-align:center; padding: 8px 0 32px;">
@@ -3240,24 +3292,23 @@ const HCT = (function() {
           <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
         </svg>
         <h1 style="margin-bottom:12px;">Heartbeat Counting Task</h1>
-        <p style="margin-bottom:24px; text-align:left;">${bodyText}</p>
-        <p style="margin-bottom:32px; text-align:left;">Place your fingertip firmly over the
-          <strong style="color:var(--fg);">rear camera and flashlight</strong> and keep it there
-          for the entire task. Stay still and quiet between intervals.</p>
+        <p style="margin-bottom:20px; text-align:left;">${bodyText}</p>
+        ${practiceNotice}
+        <p style="margin-bottom:32px; text-align:left;">After tapping below, you'll do a quick sensor check (about 5 seconds), then the counting starts.</p>
 
         <div style="width:100%; max-width:340px; margin: 0 auto 24px; text-align:left;">
           <div style="display:flex; align-items:flex-start; gap:14px; margin-bottom:18px;">
             <div style="width:36px; height:36px; border-radius:50%; background:var(--bg-elevated); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem;">📷</div>
             <div>
               <div style="font-size:0.95rem; font-weight:600; color:var(--fg); margin-bottom:3px;">Camera + Flashlight</div>
-              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Cover the lens completely. The circle on screen should glow solid red.</div>
+              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Cover the lens completely with your fingertip. Keep it there until the task ends.</div>
             </div>
           </div>
           <div style="display:flex; align-items:flex-start; gap:14px; margin-bottom:18px;">
             <div style="width:36px; height:36px; border-radius:50%; background:var(--bg-elevated); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:1rem;">🤚</div>
             <div>
               <div style="font-size:0.95rem; font-weight:600; color:var(--fg); margin-bottom:3px;">Stay still</div>
-              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Don't take your pulse. Rest your other hand still.</div>
+              <div style="font-size:0.85rem; color:var(--fg-muted); line-height:1.4;">Don't take your pulse with your other hand. Rest both hands still.</div>
             </div>
           </div>
           <div style="display:flex; align-items:flex-start; gap:14px;">
@@ -3280,106 +3331,137 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // BASELINE — identical pattern to ePAT.startBaseline.
-  // Uses screen-baseline shell (already in HTML, since needsCore implies it's present).
+  // SENSOR CHECK — replaces the old baseline phase.
+  //
+  // Goal: verify finger placement and signal quality before the first
+  // counting interval, without ever displaying the participant's BPM.
+  // The screen shows a sensor preview circle and signal-quality feedback
+  // via the same overlay used during counting. Once SQI on the active
+  // channel has been good for SENSOR_CHECK_GOOD_SECS consecutive seconds,
+  // a "Start counting" button enables.
+  //
+  // If the participant simply cannot get a clean signal within
+  // MAX_SENSOR_CHECK_SEC, the button enables anyway with a "Continue
+  // anyway?" affordance — the per-interval retry budget will handle
+  // downstream quality failures, and no participant should be trapped
+  // here forever (which is what v1 did with its broken 80-beats gate).
+  //
+  // Returns a Promise that resolves when the participant taps Start
+  // counting. The detector is left RUNNING when this resolves so the
+  // first interval can attach callbacks without a camera restart.
   // ----------------------------------------------------------
-  async function startBaseline() {
-    show("screen-baseline");
-    baselineBPMs = []; baselineStartTime = Date.now();
-    intervalSchedule = buildSchedule();
-    currentIntervalIndex = 0;
-    retriesLeft = RETRY_BUDGET;
-
-    const bpmEl = document.getElementById("baseline-bpm");
-    const progressCircle = document.getElementById("baseline-progress-circle");
-    const circ = 2 * Math.PI * 85;
-    const DUR = isPreview ? 3 : 60;   // 60s baseline matches ePAT defaults
-
+  async function runSensorCheck() {
     if (!core) {
-      // Preview / no-core simulation
-      let elapsed = 0;
-      bpmEl.textContent = '65';
-      baselineTimer = setInterval(() => {
-        elapsed += 1;
-        progressCircle.style.strokeDashoffset = circ * (1 - Math.min(1, elapsed / DUR));
-        if (elapsed >= DUR) {
-          clearInterval(baselineTimer);
-          sessionData.data.push({
-            type: "hct_baseline", recordedAt: new Date().toISOString(),
-            ppgSampleRate: 30, finalSqi: 0.5
-          });
-          showPreTaskInstructions(() => startInterval());
-        }
-      }, 1000);
+      // Preview / no-core simulation: skip with a brief delay so the screen
+      // is visible long enough to confirm flow.
+      show("screen-hct-sensor-check");
+      const btn = document.getElementById("hct-sensor-start-btn");
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Start counting →";
+      }
+      await new Promise(resolve => {
+        if (btn) btn.onclick = () => { btn.onclick = null; resolve(); };
+        else resolve();
+      });
       return;
     }
+
+    show("screen-hct-sensor-check");
+    sensorCheckGoodSecs = 0;
+    sensorCheckStartTime = performance.now();
+
+    const btn = document.getElementById("hct-sensor-start-btn");
+    const statusEl = document.getElementById("hct-sensor-status");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Checking signal…";
+    }
+    if (statusEl) statusEl.textContent = "";
 
     await core.WakeLockCtrl.request();
     const videoElement = document.getElementById("video-feed");
     const previewCanvas = document.getElementById("sensor-preview-circle");
-    previewCanvas.width = 120 * (window.devicePixelRatio || 1);
-    previewCanvas.height = 120 * (window.devicePixelRatio || 1);
+    const dpr = window.devicePixelRatio || 1;
+    previewCanvas.width = 120 * dpr;
+    previewCanvas.height = 120 * dpr;
     const previewCtx = previewCanvas.getContext("2d");
 
     startSensorWatchdog();
 
     await core.BeatDetector.start({
-      video: videoElement, canvas: document.getElementById("sampling-canvas"),
-      onBeatCb: (beat) => {
-        baselineBPMs.push(beat.instantBPM);
-        bpmEl.textContent = Math.round(beat.averageBPM);
-        lastBeatPerfTime = performance.now();
-      },
+      video: videoElement,
+      canvas: document.getElementById("sampling-canvas"),
+      // We DELIBERATELY do not register an onBeatCb here. The sensor check
+      // only needs finger presence + SQI; we don't want any chance of a
+      // beat or BPM number leaking onto the screen via a stray DOM update.
+      onBeatCb: () => { lastBeatPerfTime = performance.now(); },
       onFingerChangeCb: (p) => { isFingerPresent = p; updateSensorWarning(); },
       onSqiUpdateCb: (sqi) => { currentSqiValue = sqi; updateSensorWarning(); },
       onPPGSampleCb: () => {
         if (videoElement && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
-          previewCtx.drawImage(videoElement, 0, 0, 120 * (window.devicePixelRatio || 1), 120 * (window.devicePixelRatio || 1));
+          previewCtx.drawImage(videoElement, 0, 0, 120 * dpr, 120 * dpr);
         }
       }
     });
+    detectorRunning = true;
 
-    baselineTimer = setInterval(async () => {
-      const elapsed = (Date.now() - baselineStartTime) / 1000;
-      const remaining = Math.max(0, DUR - elapsed);
-      progressCircle.style.strokeDashoffset = circ * (1 - Math.min(1, elapsed / DUR));
+    return new Promise(resolve => {
+      sensorCheckResolve = resolve;
 
-      if (remaining <= 0) {
-        clearInterval(baselineTimer); stopSensorWatchdog();
-        // Detach baseline-only callbacks but KEEP the detector running so we
-        // don't pay another camera cold-start cost between baseline and intervals.
-        core.BeatDetector.setCallbacks({ onBeatCb: null, onFingerChangeCb: null, onPPGSampleCb: null, onSqiUpdateCb: null, onDicroticRejectCb: null });
-        detectorRunning = true;
+      sensorCheckTimer = setInterval(() => {
+        const elapsed = (performance.now() - sensorCheckStartTime) / 1000;
 
-        const diagnostics = core.BeatDetector.getDiagnostics();
-        const finalSqi = core.BeatDetector.getSqi();
-
-        // Same gate as ePAT: if baseline failed quality, restart silently.
-        if (!isPreview && (baselineBPMs.length < 80 || diagnostics.clipRate > 20 || finalSqi < 0.002)) {
-          await core.BeatDetector.stop(); detectorRunning = false;
-          setTimeout(() => startBaseline(), 4000);
-          return;
+        // Tick: was the signal good this second?
+        if (isFingerPresent && currentSqiValue >= SENSOR_CHECK_SQI_FLOOR) {
+          sensorCheckGoodSecs++;
+        } else {
+          sensorCheckGoodSecs = 0;  // any bad second resets the counter
         }
 
-        sessionData.data.push({
-          type: "hct_baseline",
-          recordedAt: new Date().toISOString(),
-          recordedHR: baselineBPMs.map(Math.round),
-          totalBeats: baselineBPMs.length,
-          ppgSampleRate: core.BeatDetector.getActualFPS(),
-          ppgDiagnostics: diagnostics,
-          finalSqi: finalSqi
-        });
+        // Ready to start? Two consecutive good seconds is the bar.
+        const ready = sensorCheckGoodSecs >= SENSOR_CHECK_GOOD_SECS;
+        // Hard cap reached? Let them through anyway, but make the button
+        // copy honest about the situation.
+        const timedOut = elapsed >= MAX_SENSOR_CHECK_SEC;
 
-        showPreTaskInstructions(() => startInterval());
-      }
-    }, 1000);
+        if (btn) {
+          if (ready) {
+            btn.disabled = false;
+            btn.textContent = "Start counting →";
+            if (statusEl) statusEl.textContent = "Signal looks good.";
+          } else if (timedOut) {
+            btn.disabled = false;
+            btn.textContent = "Continue anyway →";
+            if (statusEl) statusEl.textContent = "Signal is weak — you can continue, but counting may need to retry.";
+          } else {
+            btn.disabled = true;
+            btn.textContent = "Checking signal…";
+            if (statusEl) statusEl.textContent = `${sensorCheckGoodSecs} of ${SENSOR_CHECK_GOOD_SECS} good seconds`;
+          }
+        }
+      }, 1000);
+
+      const onStart = () => {
+        if (btn) btn.onclick = null;
+        clearInterval(sensorCheckTimer);
+        sensorCheckTimer = null;
+        sensorCheckResolve = null;
+        // Detach sensor-check callbacks; the next phase (interval) will
+        // attach its own. KEEP the detector running.
+        core.BeatDetector.setCallbacks({
+          onBeatCb: null, onFingerChangeCb: null, onSqiUpdateCb: null, onPPGSampleCb: null
+        });
+        stopSensorWatchdog();
+        resolve();
+      };
+      if (btn) btn.onclick = onStart;
+    });
   }
 
   // ----------------------------------------------------------
-  // INTERVAL — counting phase. The participant counts silently
-  // for `duration_sec`, the BeatDetector tallies the ground-truth
-  // beat count, and the SQI watchdog enforces signal quality.
+  // INTERVAL — counting phase. Unchanged from v1 except for one minor
+  // cleanup: the entry call no longer references baseline state.
   // ----------------------------------------------------------
   async function startInterval() {
     const item = intervalSchedule[currentIntervalIndex];
@@ -3387,7 +3469,6 @@ const HCT = (function() {
 
     show("screen-hct-counting");
 
-    // Reset per-interval buffers
     intRecordedHR = []; intIbiSeries = []; intIbiFlags = [];
     intCleanBeats = 0; intFlaggedBeats = 0; intLastIbi = 0;
     intSqiTimeSeries = []; intSqiBadSeconds = 0; intLastSqiCheckTime = performance.now();
@@ -3395,7 +3476,6 @@ const HCT = (function() {
     intStartedPerfMs = performance.now();
     intervalRunning = true;
 
-    // Header label
     const labelEl = document.getElementById("hct-interval-label");
     if (labelEl) {
       const realCount = INTERVALS_SEC.length;
@@ -3405,7 +3485,6 @@ const HCT = (function() {
         : `Interval ${realIndex} of ${realCount}`;
     }
 
-    // Optional: clear timer / progress ring text
     const timerEl = document.getElementById("hct-counting-timer");
     if (timerEl) {
       timerEl.style.display = SHOW_TIMER ? "block" : "none";
@@ -3418,12 +3497,8 @@ const HCT = (function() {
     const circ = 2 * Math.PI * 85;
     if (ringFill) ringFill.style.strokeDashoffset = circ;
 
-    // Hide the early-stop button — Schandry-style, the experimenter (timer) ends the interval,
-    // not the participant. We expose an emergency-stop only via a long-press if needed.
-    // For now: no participant-facing stop; the timer is authoritative.
-
     if (!core) {
-      // Preview / no-core simulation: simulate ~72 BPM
+      // Preview simulation
       const FAKE_BPM = 72;
       const fakeBeats = Math.round((item.duration_sec * FAKE_BPM) / 60);
       const start = Date.now();
@@ -3437,7 +3512,6 @@ const HCT = (function() {
         if (ringFill) ringFill.style.strokeDashoffset = circ * (1 - Math.min(1, elapsed / item.duration_sec));
         if (remaining <= 0) {
           clearInterval(intervalTimer);
-          // Synthesize a recordedHR array so the data shape matches real runs
           for (let i = 0; i < fakeBeats; i++) {
             intRecordedHR.push(FAKE_BPM);
             intIbiSeries.push(Math.round(60000 / FAKE_BPM));
@@ -3448,9 +3522,8 @@ const HCT = (function() {
       return;
     }
 
-    // Re-attach callbacks for this interval. The detector itself stays
-    // running between baseline and intervals (same camera session) so we
-    // don't pay another startup cost or risk losing finger contact.
+    // Re-attach callbacks for this interval. The detector is already running
+    // from the sensor check, so no camera restart.
     core.BeatDetector.setCallbacks({
       onBeatCb: (beat) => {
         intRecordedHR.push(beat.instantBPM);
@@ -3462,7 +3535,6 @@ const HCT = (function() {
         currentSqiValue = sqi;
         const now = performance.now();
         intSqiTimeSeries.push({ t: Math.round(now - intStartedPerfMs), sqi });
-        // Track time below WARN as a quality proxy for retry decision
         if (now - intLastSqiCheckTime > 0) {
           if (sqi < SQI_WARN) intSqiBadSeconds += (now - intLastSqiCheckTime) / 1000;
           intLastSqiCheckTime = now;
@@ -3486,9 +3558,6 @@ const HCT = (function() {
 
       if (remaining <= 0) {
         clearInterval(intervalTimer);
-        // Beats counted = number of cleanly accepted beats during this interval.
-        // We use the recordedHR length, which is incremented exactly once per
-        // accepted beat by the BeatDetector callback.
         const actualBeats = intRecordedHR.length;
         endInterval(item, actualBeats);
       }
@@ -3496,23 +3565,19 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // END INTERVAL — quality gate, then count-entry screen
+  // END INTERVAL — quality gate, then count-entry screen.
+  // Unchanged from v1.
   // ----------------------------------------------------------
   function endInterval(item, actualBeats) {
     intervalRunning = false;
     stopSensorWatchdog();
 
-    // Quality gate: if the interval was too noisy, count it as a failed attempt
-    // and (if budget allows) silently retry. This mirrors how ePAT's retry
-    // budget works for trial-quality failures.
     const durationMs = performance.now() - intStartedPerfMs;
     const sqiBadFrac = durationMs > 0 ? (intSqiBadSeconds * 1000) / durationMs : 0;
     const tooNoisy = !isPreview && (actualBeats < 5 || sqiBadFrac > 0.5);
 
     if (tooNoisy && retriesLeft > 0) {
       retriesLeft--;
-      // Don't advance; retry the same interval after a short pause.
-      // Show a brief inline message via the sensor overlay.
       const overlay = document.getElementById("sensor-warning-overlay");
       if (overlay) {
         overlay.classList.add("visible");
@@ -3523,8 +3588,6 @@ const HCT = (function() {
       return;
     }
 
-    // Build a partial entry now; reportedCount and confidence are filled in
-    // by the screens that follow.
     const entry = {
       type: 'hct_interval',
       intervalIndex: currentIntervalIndex,
@@ -3552,7 +3615,7 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // COUNT ENTRY — numeric input for participant's reported count
+  // COUNT ENTRY — unchanged from v1.
   // ----------------------------------------------------------
   function showCountEntry(entry, item) {
     show("screen-hct-count");
@@ -3580,7 +3643,6 @@ const HCT = (function() {
       input.oninput = null;
       const reported = parseInt(input.value, 10);
       entry.reportedCount = Number.isFinite(reported) ? reported : null;
-      // Standard Schandry accuracy formula. Undefined when actualBeats is 0.
       entry.accuracy = (entry.actualBeats > 0 && entry.reportedCount !== null)
         ? +(1 - Math.abs(entry.actualBeats - entry.reportedCount) / entry.actualBeats).toFixed(4)
         : null;
@@ -3594,8 +3656,7 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // CONFIDENCE — reuses screen-onboarding shell, same widget pattern as ePAT
-  // 0–10 slider. Skipped for practice intervals.
+  // CONFIDENCE — unchanged from v1.
   // ----------------------------------------------------------
   function showConfidence(entry, item) {
     show("screen-onboarding");
@@ -3627,8 +3688,7 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // BODY MAP — reuses screen-bodymap, same wiring as ePAT
-  // Skipped for practice intervals.
+  // BODY MAP — unchanged from v1.
   // ----------------------------------------------------------
   function afterConfidence(entry, item) {
     const realIndex = item.isPractice ? -1 : (currentIntervalIndex - (INCLUDE_PRACTICE ? 1 : 0));
@@ -3677,8 +3737,7 @@ const HCT = (function() {
     if (currentIntervalIndex >= intervalSchedule.length) {
       finishAndAdvance();
     } else {
-      // Pre-interval breathing room: 2s pause before next counting begins.
-      // Show the onboarding shell with a brief "Get ready" message.
+      // Pre-interval breathing room
       show("screen-onboarding");
       const container = document.getElementById("onboarding-container");
       const nextBtn = document.getElementById("onboarding-next-btn");
@@ -3700,9 +3759,11 @@ const HCT = (function() {
   }
 
   // ----------------------------------------------------------
-  // CONSOLIDATE & ADVANCE
-  // Same envelope-splice pattern as ePAT — pull raw entries, build a
-  // single hct_response, splice it back in at the original index.
+  // CONSOLIDATE & ADVANCE — same as v1, except baseline is now optional.
+  // The envelope still has a baseline field; in v2 it will always be null.
+  // Downstream code that treated baseline as required must be tolerant of
+  // null — which the parser already is, since it filters by entry type
+  // and tolerates missing fields.
   // ----------------------------------------------------------
   async function finishAndAdvance() {
     if (core) {
@@ -3712,16 +3773,16 @@ const HCT = (function() {
     }
     stopSensorWatchdog();
 
+    // No more hct_baseline entries to consolidate (v1 left them in v1 sessions
+    // for backward compat; v2 sessions will simply not have any baseline-typed
+    // entries to filter, and this filter remains correct because the dashboard
+    // and parser handle baseline:null gracefully).
     const rawEntries = sessionData.data.filter(e =>
-      e && (e.type === 'hct_baseline' || e.type === 'hct_interval')
+      e && (e.type === 'hct_interval')
     );
-    const baseline = rawEntries.find(e => e.type === 'hct_baseline') || null;
-    const intervalObjs = rawEntries.filter(e => e.type === 'hct_interval' && !e.isPractice);
-    const practiceObjs = rawEntries.filter(e => e.type === 'hct_interval' &&  e.isPractice);
+    const intervalObjs = rawEntries.filter(e => !e.isPractice);
+    const practiceObjs = rawEntries.filter(e =>  e.isPractice);
 
-    // Pearson r between accuracy and confidence (Garfinkel's interoceptive
-    // awareness metric). Returns null if confidence ratings disabled, or
-    // fewer than 3 valid pairs (correlation undefined / unstable).
     function pearson(xs, ys) {
       if (xs.length < 3) return null;
       const n = xs.length;
@@ -3736,11 +3797,9 @@ const HCT = (function() {
       return den > 0 ? +(num / den).toFixed(4) : null;
     }
 
-    // Summary calculations
     const accArr = intervalObjs.map(e => e.accuracy).filter(v => typeof v === 'number');
     const confArr = intervalObjs.map(e => e.confidence).filter(v => typeof v === 'number' && v >= 0);
 
-    // For interoceptive awareness, we need PAIRED (accuracy, confidence) values.
     const pairs = intervalObjs
       .filter(e => typeof e.accuracy === 'number' && typeof e.confidence === 'number' && e.confidence >= 0)
       .map(e => [e.accuracy, e.confidence]);
@@ -3754,8 +3813,10 @@ const HCT = (function() {
       mean_confidence:         confArr.length ? +(confArr.reduce((a, b) => a + b, 0) / confArr.length).toFixed(2) : null,
       interoceptive_awareness: (CONF_RATINGS && pairs.length >= 3) ? pearson(pairs.map(p => p[0]), pairs.map(p => p[1])) : null,
       mean_sqi:                sqiArr.length ? +(sqiArr.reduce((a, b) => a + b, 0) / sqiArr.length).toFixed(4) : null,
-      baseline_beats:          baseline?.totalBeats ?? null,
-      baseline_sqi:            baseline?.finalSqi   ?? null,
+      // Baseline fields kept in summary for schema stability with v1 dashboards;
+      // always null in v2 since no baseline is captured.
+      baseline_beats:          null,
+      baseline_sqi:            null,
       instruction_variant:     INSTRUCTION_VARIANT,
       randomized:              RANDOMIZE,
       intervals_sec:           INTERVALS_SEC.slice()
@@ -3763,20 +3824,18 @@ const HCT = (function() {
 
     const hctEntry = {
       type: 'hct_response',
-      startedAt: baseline?.recordedAt ?? (intervalObjs[0]?.startedAt) ?? null,
+      startedAt: (intervalObjs[0]?.startedAt) ?? null,
       intervals: intervalObjs,
       practices: practiceObjs,
-      baseline: baseline,
+      baseline: null,             // explicit null for downstream clarity
       summary
     };
 
-    // Splice in at the position of the first raw entry, preserving order
-    // relative to surrounding ema_response blocks.
     const firstRawIdx = sessionData.data.findIndex(e =>
-      e && (e.type === 'hct_baseline' || e.type === 'hct_interval')
+      e && (e.type === 'hct_interval')
     );
     sessionData.data = sessionData.data.filter(e =>
-      e && e.type !== 'hct_baseline' && e.type !== 'hct_interval'
+      e && e.type !== 'hct_interval'
     );
     if (firstRawIdx >= 0 && firstRawIdx <= sessionData.data.length) {
       sessionData.data.splice(firstRawIdx, 0, hctEntry);
@@ -3787,8 +3846,42 @@ const HCT = (function() {
     advancePhase();
   }
 
-  return { startBaseline };
+  // The phase dispatcher in study-base.js calls HCT.startBaseline().
+  // Keep the export name for compatibility; alias it to startTask().
+  return { startBaseline: startTask };
 })();
+
+// ----------------------------------------------------------
+// CHANGELOG — module-hct.js v2 vs v1
+// ----------------------------------------------------------
+// FIXED: infinite calibration restart loop. v1 used `baselineBPMs.length < 80`
+//   as a baseline-quality gate. Over a 60s baseline this required sustained
+//   80+ BPM, which a normal participant (60-75 BPM resting) never met,
+//   triggering silent re-runs forever. The whole gate is gone in v2 because
+//   there's no baseline to gate.
+//
+// REMOVED: pre-task baseline HR capture entirely. v1 inherited this from
+//   ePAT but HCT doesn't need it — and showing the participant their BPM
+//   immediately before a counting task is methodological contamination
+//   (Brener & Ring 2018; Desmedt et al. 2018). Participants now never see
+//   their HR during HCT.
+//
+// ADDED: pre-task instructions screen now runs FIRST, before any camera
+//   activity. Camera turns on at the sensor check, not before.
+//
+// ADDED: sensor check phase. Brief signal-quality verification (~5s in
+//   typical conditions, capped at 30s with a "continue anyway" escape
+//   hatch). Replaces the 60s baseline. No BPM displayed.
+//
+// CHANGED: data envelope. `baseline` field is now always null in v2.
+//   `hct_baseline`-typed raw entries no longer exist; finishAndAdvance()
+//   only consolidates `hct_interval` entries. Downstream code that
+//   handled baseline gracefully (parser, dashboard) continues to work.
+//
+// PRESERVED: per-interval flow (counting → count entry → confidence →
+//   body map), retry budget mechanics, dual-channel SQI thresholds,
+//   randomization and practice configuration, custom instructions and
+//   instruction variants, all module config keys.
 
   // ---------------------------------------------------------------
   // START handler — either fresh start or resume
