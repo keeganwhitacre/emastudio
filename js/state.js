@@ -104,7 +104,30 @@ let state = {
     // session. Same defensive purpose as ePAT's retry_budget.
     retry_budget: 10
     }
-}
+},
+{
+    id: "iat",
+    label: "Implicit Association Task",
+    desc: "Greenwald et al. (2003) IAT with D-score scoring. Mobile-optimized tap response — no camera required.",
+    badge: null,
+    enabled: false,
+    settings: {
+      target_a_label:  "Flowers",
+      target_b_label:  "Insects",
+      attr_pos_label:  "Pleasant",
+      attr_neg_label:  "Unpleasant",
+      target_a_words:  ["Orchid","Tulip","Rose","Daisy","Lily"],
+      target_b_words:  ["Wasp","Flea","Roach","Centipede","Maggot"],
+      attr_pos_words:  ["Happy","Love","Joy","Peace","Wonderful"],
+      attr_neg_words:  ["Agony","Terrible","Horrible","Evil","Awful"],
+      // [block1, block2, block3, block4, block5, block6, block7]
+      // Standard Greenwald et al. (2003): 20/20/20/40/40/20/40
+      // D-score uses blocks 3+4 (pairing 1) and 6+7 (pairing 2).
+      block_trials:    [20, 20, 20, 40, 40, 20, 40],
+      iti_ms:          400,
+      show_practice:   true
+    }
+  }
 ],
 
   ema: {

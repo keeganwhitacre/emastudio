@@ -879,6 +879,7 @@
           <a href="#ppg-capture" class="docs-nav-link">HR Capture (PPG)</a>
           <a href="#epat" class="docs-nav-link">ePAT Task</a>
           <a href="#hct" class="docs-nav-link">HCT Task</a>
+          <a href="#iat" class="docs-nav-link">IAT</a>
           <a href="#conditional-tasks" class="docs-nav-link">Conditional Tasks</a>
         </div>
         <div class="docs-nav-group">
@@ -1147,9 +1148,14 @@
                 </td>
               </tr>
               <tr>
-                <td>Stroop / IAT / additional task modules</td>
+                <td>IAT (Implicit Association Task)</td>
+                <td><span class="status-pill stable">STABLE</span></td>
+                <td>Mobile-optimized tap response, D-score computed in-browser. No camera required.</td>
+              </tr>
+              <tr>
+                <td>Stroop / additional task modules</td>
                 <td><span class="status-pill planned">PLANNED</span></td>
-                <td>The task system is built to be extended; these are next in line.</td>
+                <td>The task system is built to be extended.</td>
               </tr>
             </tbody>
           </table>
@@ -1448,7 +1454,8 @@
           <p>The Tasks tab is where you turn optional task modules on or off. Toggling a task makes it available to drop
             into your schedule — it doesn't insert it anywhere automatically; you still choose where in the session
             sequence it runs (see <a href="#schedule-tab">Schedule</a>).</p>
-          <p>Currently available: <strong>ePAT</strong>. Additional cognitive tasks (Stroop, IAT) are on the roadmap.
+          <p>Currently available: <strong>ePAT</strong>, <strong>HCT</strong>, and <strong>IAT</strong>. No camera is
+            required for the IAT — it is the only task module that works on any smartphone without hardware constraints.
           </p>
 
           <!-- ========================================================= -->
@@ -2311,15 +2318,215 @@ affect &lt;- df |&gt;
   }
 }
 </code></pre>
+
             </div>
+
           </details>
-          <!-- (3) STATUS TABLE: add this row to the existing status table near the top
-     of the file, right after the ePAT row -->
-          <tr>
+                      <tr>
             <td>HCT task (heartbeat counting)</td>
             <td><span class="status-pill beta">BETA</span></td>
             <td>Schandry-style. Shares PPG core with ePAT and HR capture.</td>
           </tr>
+           <!-- ========================================================= -->
+          <!-- IAT                                                         -->
+          <!-- ========================================================= -->
+ 
+          <h2 id="iat">Implicit Association Task (IAT)</h2>
+          <p>The IAT (Greenwald, McGhee &amp; Schwartz, 1998) measures the strength of automatic
+            associations between concept pairs by comparing response times across compatible and
+            incompatible sorting conditions. EMA Forge implements the standard 7-block IAT with
+            D-score scoring (Greenwald, Nosek &amp; Banaji, 2003) computed entirely in the
+            participant's browser at session end. No server, no camera, no hardware requirements
+            beyond a touchscreen.</p>
+ 
+          <p>Because the IAT is RT-based, mobile deployment requires deliberate engineering
+            choices that differ from desktop implementations:</p>
+          <ul>
+            <li><strong>touchstart, not click.</strong> Response time is recorded from
+              <code>touchstart</code>, which fires at finger contact (~50–100&thinsp;ms earlier
+              than <code>click</code>). <code>click</code> fires as a fallback for
+              desktop/preview.</li>
+            <li><strong>rAF-anchored stimulus onset.</strong> The stimulus word is written to the
+              DOM and then <code>t₀ = performance.now()</code> is captured inside a
+              <code>requestAnimationFrame</code> callback — not at the moment of the
+              <code>innerHTML</code> write. This ensures <code>t₀</code> reflects pixel-on-screen
+              rather than JS execution time, which can diverge by a full frame (16&thinsp;ms at
+              60&thinsp;Hz) or more under load.</li>
+            <li><strong>Half-screen tap zones.</strong> The left and right halves of the screen
+              are independent invisible buttons. A hairline center divider provides a visual
+              affordance. Tap targets are intentionally the full screen height, not thumb-zone
+              strips, to minimize motor error variance.</li>
+          </ul>
+ 
+          <details>
+            <summary>D-score algorithm (click to expand)</summary>
+            <div class="details-body">
+              <p>The implementation follows Greenwald, Nosek &amp; Banaji (2003, <em>JPSP</em>),
+                error replacement strategy B:</p>
+              <ol>
+                <li><strong>Exclusions.</strong> Trials with RT &lt; 300&thinsp;ms (anticipatory)
+                  or &gt; 10,000&thinsp;ms (disengaged) are flagged as excluded and removed before
+                  all subsequent steps.</li>
+                <li><strong>Error penalty.</strong> For each pairing block set, compute the mean
+                  RT of correct trials. Each error trial's RT is replaced by that mean +
+                  600&thinsp;ms.</li>
+                <li><strong>Block means.</strong> Mean RT is computed across the error-replaced
+                  trial set for blocks 3+4 (pairing 1) and blocks 6+7 (pairing 2).</li>
+                <li><strong>Pooled SD.</strong> SD is computed across all valid trials from both
+                  pairing sets pooled together — not the average of within-block SDs. The same
+                  error-replaced RTs are used.</li>
+                <li><strong>D = (M₂ − M₁) / SD<sub>pooled</sub>.</strong> Sign is oriented so
+                  positive D = target A + positive attribute faster (compatible). Whether pairing
+                  1 is the compatible condition depends on <code>block_order_variant</code> (0 or
+                  1), which is logged in the summary and determined by
+                  <code>participantId % 2</code>.</li>
+              </ol>
+              <p><strong>Fast-responder flag.</strong> If more than 10% of trials in any block
+                have RT &lt; 300&thinsp;ms, <code>fast_responder: true</code> is set in the
+                summary. This is a flag, not an auto-exclusion — the convention in the literature
+                is to report and let the analyst decide.</p>
+            </div>
+          </details>
+ 
+          <details>
+            <summary>Block structure (click to expand)</summary>
+            <div class="details-body">
+              <table>
+                <thead>
+                  <tr><th>Block</th><th>Content</th><th>Default trials</th><th>Used for D</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>1</td><td>Target A practice</td><td>20</td><td>No</td></tr>
+                  <tr><td>2</td><td>Attribute practice</td><td>20</td><td>No</td></tr>
+                  <tr><td>3</td><td>Combined practice — pairing 1</td><td>20</td><td>Yes</td></tr>
+                  <tr><td>4</td><td>Combined critical — pairing 1</td><td>40</td><td>Yes</td></tr>
+                  <tr><td>5</td><td>Target reversal practice</td><td>40</td><td>No</td></tr>
+                  <tr><td>6</td><td>Combined practice — pairing 2</td><td>20</td><td>Yes</td></tr>
+                  <tr><td>7</td><td>Combined critical — pairing 2</td><td>40</td><td>Yes</td></tr>
+                </tbody>
+              </table>
+              <p>All trial counts are configurable in the Builder. Blocks 3+4 and 6+7 are the
+                critical blocks used for D-score computation (Greenwald et al., 2003). Practice
+                blocks can be disabled as a group in the Builder, though this is not recommended
+                — participants need to learn the categorization before the combined critical
+                blocks.</p>
+            </div>
+          </details>
+ 
+          <details>
+            <summary>Counterbalancing (click to expand)</summary>
+            <div class="details-body">
+              <p>Which target category pairs with positive attributes in blocks 3/4 is determined
+                automatically by <code>participantId % 2</code>:</p>
+              <ul>
+                <li><strong>Variant 0</strong> (even PIDs): Target A + Positive on left in
+                  blocks 3/4; Target A + Negative on left in blocks 6/7.</li>
+                <li><strong>Variant 1</strong> (odd PIDs): Target A + Negative on left in
+                  blocks 3/4; Target A + Positive on left in blocks 6/7.</li>
+              </ul>
+              <p>This gives approximately equal assignment without researcher intervention and
+                is fully deterministic — you can always reconstruct which order a participant
+                received from <code>block_order_variant</code> in the output. Include it as a
+                covariate or between-subjects factor in any model where order effects are a
+                concern.</p>
+            </div>
+          </details>
+ 
+          <details>
+            <summary>IAT JSON output shape (click to expand)</summary>
+            <div class="details-body">
+              <pre><code>{
+  "type": "iat_response",
+  "startedAt": "2026-04-30T08:12:44Z",
+  "trials": [
+    {
+      "block_index": 0,
+      "block_id": 1,
+      "block_label": "Practice: Flowers",
+      "pairing_id": null,
+      "critical_for_d": false,
+      "trial_n_in_block": 1,
+      "trial_n_overall": 1,
+      "stimulus": "Orchid",
+      "category": "target_a",
+      "correct_side": "left",
+      "response_side": "left",
+      "correct": true,
+      "rt_ms": 621.4,
+      "excluded": false,
+      "exclude_reason": null,
+      "timestamp": "2026-04-30T08:12:45Z"
+    },
+    ...
+  ],
+  "summary": {
+    "d_score": 0.482,
+    "d_mean_pairing1": 712.3,
+    "d_mean_pairing2": 891.6,
+    "d_sd_pooled": 372.1,
+    "d_n_pairing1": 118,
+    "d_n_pairing2": 117,
+    "block_order_variant": 0,
+    "fast_responder": false,
+    "total_trials": 200,
+    "excluded_trials": 3,
+    "exclusion_rate": 0.015,
+    "target_a_label": "Flowers",
+    "target_b_label": "Insects",
+    "attr_pos_label": "Pleasant",
+    "attr_neg_label": "Unpleasant",
+    "block_stats": [
+      {
+        "block_id": 1,
+        "n_total": 20, "n_valid": 20, "n_excluded": 0,
+        "n_errors": 2, "error_rate": 0.1,
+        "mean_rt": 698.2,
+        "fast_trial_count": 0, "fast_trial_rate": 0.0
+      },
+      ...
+    ]
+  }
+}
+</code></pre>
+              <p><strong>In R</strong>, to get one row per participant with the D-score and
+                block order:</p>
+              <pre><code>library(jsonlite)
+library(dplyr)
+library(purrr)
+ 
+sessions &lt;- list.files("data/", pattern = "\\.json$", full.names = TRUE) |&gt;
+  map(read_json)
+ 
+iat_summary &lt;- sessions |&gt;
+  map_dfr(function(s) {
+    iat &lt;- keep(s$data, ~ .$type == "iat_response")
+    if (!length(iat)) return(NULL)
+    sm &lt;- iat[[1]]$summary
+    tibble(
+      pid              = s$participantId,
+      day              = s$day,
+      d_score          = sm$d_score,
+      block_order      = sm$block_order_variant,
+      fast_responder   = sm$fast_responder,
+      exclusion_rate   = sm$exclusion_rate,
+      mean_rt_p1       = sm$d_mean_pairing1,
+      mean_rt_p2       = sm$d_mean_pairing2
+    )
+  })
+ 
+# Trial-level data (for block-by-block RT analysis)
+iat_trials &lt;- sessions |&gt;
+  map_dfr(function(s) {
+    iat &lt;- keep(s$data, ~ .$type == "iat_response")
+    if (!length(iat)) return(NULL)
+    iat[[1]]$trials |&gt;
+      map_dfr(as_tibble) |&gt;
+      mutate(pid = s$participantId, day = s$day)
+  })
+</code></pre>
+            </div>
+          </details>
+          
 
           <h2 id="conditional-tasks">Conditional Tasks</h2>
           <p>A task step in a window's phase sequence can carry a condition that gates whether it runs at all:</p>

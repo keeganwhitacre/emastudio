@@ -245,8 +245,146 @@ const SETTINGS_RENDERERS = {
       }
     }
   },
-  // To add Stroop, IAT, etc.:
-  // stroop: { html(mod) { ... }, bind(card, mod) { ... } }
+   iat: {
+    html(mod) {
+      const s  = mod.settings;
+      const tl = arr => (Array.isArray(arr) ? arr : []).join('\n');
+      const bt = Array.isArray(s.block_trials) ? s.block_trials : [20,20,20,40,40,20,40];
+      const blockMeta = [
+        ['Block 1', 'Target A practice',          0],
+        ['Block 2', 'Attribute practice',          1],
+        ['Block 3', 'Combined practice (P1) \u2605', 2],
+        ['Block 4', 'Combined critical (P1) \u2605', 3],
+        ['Block 5', 'Target reversal practice',    4],
+        ['Block 6', 'Combined practice (P2) \u2605', 5],
+        ['Block 7', 'Combined critical (P2) \u2605', 6],
+      ];
+      return `
+        <div class="field-hint" style="margin-bottom:10px;">
+          Block order counterbalanced automatically via participant ID % 2. Logged in output as <code>block_order_variant</code>.
+        </div>
+ 
+        <div class="section-title" style="margin-bottom:8px;">Target Categories</div>
+        <div class="field-row">
+          <div class="field-group">
+            <label class="field-label">Category A — Label</label>
+            <input type="text" class="ms-iat-ta-label" value="${escH(s.target_a_label||'')}">
+          </div>
+          <div class="field-group">
+            <label class="field-label">Category B — Label</label>
+            <input type="text" class="ms-iat-tb-label" value="${escH(s.target_b_label||'')}">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label class="field-label">Category A — Words (one per line)</label>
+            <textarea class="ms-iat-ta-words" rows="5" style="width:100%;resize:vertical;">${escH(tl(s.target_a_words))}</textarea>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Category B — Words (one per line)</label>
+            <textarea class="ms-iat-tb-words" rows="5" style="width:100%;resize:vertical;">${escH(tl(s.target_b_words))}</textarea>
+          </div>
+        </div>
+ 
+        <div class="section-title" style="margin:12px 0 8px;">Attribute Categories</div>
+        <div class="field-row">
+          <div class="field-group">
+            <label class="field-label">Positive Attribute — Label</label>
+            <input type="text" class="ms-iat-ap-label" value="${escH(s.attr_pos_label||'')}">
+          </div>
+          <div class="field-group">
+            <label class="field-label">Negative Attribute — Label</label>
+            <input type="text" class="ms-iat-an-label" value="${escH(s.attr_neg_label||'')}">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label class="field-label">Positive — Words (one per line)</label>
+            <textarea class="ms-iat-ap-words" rows="5" style="width:100%;resize:vertical;">${escH(tl(s.attr_pos_words))}</textarea>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Negative — Words (one per line)</label>
+            <textarea class="ms-iat-an-words" rows="5" style="width:100%;resize:vertical;">${escH(tl(s.attr_neg_words))}</textarea>
+          </div>
+        </div>
+ 
+        <div class="section-title" style="margin:12px 0 8px;">Block Trial Counts</div>
+        <div class="field-hint" style="margin-bottom:8px;">&#9733; = blocks used for D-score computation (Greenwald et al., 2003).</div>
+        <div class="field-row" style="flex-wrap:wrap;gap:8px;">
+          ${blockMeta.map(([lbl, hint, idx]) => `
+            <div class="field-group" style="flex:1;min-width:110px;">
+              <label class="field-label">${lbl}</label>
+              <input type="number" class="ms-iat-bt" data-idx="${idx}" value="${bt[idx]||20}" min="10" max="80">
+              <div class="field-hint" style="font-size:0.7rem;">${hint}</div>
+            </div>`).join('')}
+        </div>
+ 
+        <div class="section-title" style="margin:12px 0 8px;">Timing</div>
+        <div class="field-row">
+          <div class="field-group">
+            <label class="field-label">Inter-trial Interval (ms)</label>
+            <input type="number" class="ms-iat-iti" value="${s.iti_ms??400}" min="100" max="1000" step="50">
+            <div class="field-hint">400ms is standard (Nosek et al.).</div>
+          </div>
+        </div>
+ 
+        <div class="toggle-row" style="margin-top:8px;">
+          <span class="toggle-label">
+            Include practice blocks (1, 2, 3, 5)
+            <span class="field-hint" style="display:block;margin-top:2px;">
+              Disabling jumps directly to critical blocks. Strongly not recommended
+              — participants need to learn the categorization first.
+            </span>
+          </span>
+          <label class="toggle">
+            <input type="checkbox" class="ms-iat-practice" ${s.show_practice!==false?'checked':''}>
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+      `;
+    },
+ 
+    bind(card, mod) {
+      const s = mod.settings;
+ 
+      const txt = (sel, key) => {
+        const el = card.querySelector(sel);
+        if (el) el.addEventListener('input', () => { s[key] = el.value.trim(); schedulePreview(); });
+      };
+      txt('.ms-iat-ta-label', 'target_a_label');
+      txt('.ms-iat-tb-label', 'target_b_label');
+      txt('.ms-iat-ap-label', 'attr_pos_label');
+      txt('.ms-iat-an-label', 'attr_neg_label');
+ 
+      const lines = (sel, key) => {
+        const el = card.querySelector(sel);
+        if (el) el.addEventListener('input', () => {
+          s[key] = el.value.split('\n').map(l => l.trim()).filter(Boolean);
+          schedulePreview();
+        });
+      };
+      lines('.ms-iat-ta-words', 'target_a_words');
+      lines('.ms-iat-tb-words', 'target_b_words');
+      lines('.ms-iat-ap-words', 'attr_pos_words');
+      lines('.ms-iat-an-words', 'attr_neg_words');
+ 
+      card.querySelectorAll('.ms-iat-bt').forEach(el => {
+        el.addEventListener('input', () => {
+          if (!Array.isArray(s.block_trials)) s.block_trials = [20,20,20,40,40,20,40];
+          s.block_trials[parseInt(el.dataset.idx, 10)] = parseInt(el.value, 10) || 20;
+          schedulePreview();
+        });
+      });
+ 
+      const itiEl = card.querySelector('.ms-iat-iti');
+      if (itiEl) itiEl.addEventListener('input', () => { s.iti_ms = parseInt(itiEl.value,10)||400; schedulePreview(); });
+ 
+      const prEl = card.querySelector('.ms-iat-practice');
+      if (prEl) prEl.addEventListener('change', () => { s.show_practice = prEl.checked; schedulePreview(); });
+    }
+  },
+ 
+  // To add Stroop etc.: stroop: { html(mod) { ... }, bind(card, mod) { ... } }
 };
 
 // ---------------------------------------------------------------------------
@@ -303,6 +441,9 @@ function buildModuleCard(mod) {
 function renderModules() {
   const list = document.getElementById('module-list');
   if (!list) return;
+  list.style.display = 'flex';
+  list.style.flexDirection = 'column';
+  list.style.gap = '12px';
   list.innerHTML = '';
   state.modules.forEach(mod => list.appendChild(buildModuleCard(mod)));
 }

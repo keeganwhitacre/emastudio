@@ -12,9 +12,9 @@
 // ==========================================================
 
 let templates = {
-  epatCore: null, studyBase: null,
-  modOnboarding: null, modEma: null, modEpat: null, modHct: null
-};
+    epatCore: null, studyBase: null,
+    modOnboarding: null, modEma: null, modEpat: null, modHct: null, modIat: null
+  };
 
 async function loadTemplates() {
   if (!templates.epatCore) templates.epatCore = await fetch('templates/epat-core.js').then(r => r.text());
@@ -23,6 +23,7 @@ async function loadTemplates() {
   if (!templates.modEma) templates.modEma = await fetch('templates/module-ema.js').then(r => r.text());
   if (!templates.modEpat) templates.modEpat = await fetch('templates/module-epat.js').then(r => r.text());
   if (!templates.modHct) templates.modHct = await fetch('templates/module-hct.js').then(r => r.text());
+  if (!templates.modIat) templates.modIat = await fetch('templates/module-iat.js').then(r => r.text());
 }
 
 function getThemeCSS(theme, accent) {
@@ -60,6 +61,7 @@ function stitchStudyJs(cfg, { configInline, previewMode, previewSession: _ps }) 
   const moduleParts = [templates.modOnboarding, templates.modEma];
   if (cfg.modules?.epat) moduleParts.push(templates.modEpat);
   if (cfg.modules?.hct) moduleParts.push(templates.modHct);
+  if (cfg.modules?.iat) moduleParts.push(templates.modIat);
   // Heart rate capture is a question type handled inside module-ema.js.
   // No separate module file needed — ePATCore provides BeatDetector when
   // any of epat/hct/hr_capture is enabled.
@@ -319,6 +321,65 @@ function buildHtmlShell({ cfg, themeCSS, includeEpatCore, configTag, coreTag, st
     </div>
     <button class="btn btn-secondary btn-block" id="download-btn">Save Local Copy</button>
   </div>
+
+  <div class="screen" id="screen-iat-instructions">
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:32px 24px;gap:20px;text-align:center;">
+      <p class="label" id="iat-block-label" style="color:var(--fg-muted);margin:0;"></p>
+      <h1 id="iat-block-title" style="margin:0;font-size:1.5rem;font-weight:700;line-height:1.2;"></h1>
+      <p id="iat-instructions-text" style="color:var(--fg-muted);white-space:pre-line;line-height:1.6;max-width:300px;margin:0;font-size:0.95rem;"></p>
+      <div style="display:flex;gap:12px;width:100%;max-width:320px;margin-top:4px;">
+        <div style="flex:1;padding:12px 8px;background:var(--bg-elevated);border-radius:8px;font-size:0.8rem;line-height:1.4;text-align:center;">
+          <span style="display:block;font-weight:700;margin-bottom:4px;">LEFT</span>
+          <span id="iat-inst-left-label" style="color:var(--fg-muted);white-space:pre-line;font-size:0.75rem;"></span>
+        </div>
+        <div style="flex:1;padding:12px 8px;background:var(--bg-elevated);border-radius:8px;font-size:0.8rem;line-height:1.4;text-align:center;">
+          <span style="display:block;font-weight:700;margin-bottom:4px;">RIGHT</span>
+          <span id="iat-inst-right-label" style="color:var(--fg-muted);white-space:pre-line;font-size:0.75rem;"></span>
+        </div>
+      </div>
+    </div>
+    <div style="padding:0 24px 32px;width:100%;box-sizing:border-box;">
+      <button class="btn btn-primary btn-block" id="iat-begin-block-btn" style="width:100%;">Start Task</button>
+    </div>
+  </div>
+ 
+   <div class="screen" id="screen-iat-trial">
+    <!-- Category labels pinned to top -->
+    <div style="position:absolute;top:0;left:0;right:0;display:flex;z-index:2;pointer-events:none;">
+      <div id="iat-left-label"
+        style="flex:1;padding:calc(env(safe-area-inset-top,16px) + 10px) 12px 10px;font-size:0.72rem;font-weight:700;line-height:1.3;color:var(--fg-muted);white-space:pre-line;text-align:left;"></div>
+      <div id="iat-right-label"
+        style="flex:1;padding:calc(env(safe-area-inset-top,16px) + 10px) 12px 10px;font-size:0.72rem;font-weight:700;line-height:1.3;color:var(--fg-muted);white-space:pre-line;text-align:right;"></div>
+    </div>
+ 
+    <!-- Centre divider — visual affordance for the two tap zones -->
+    <div style="position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--border);opacity:0.5;z-index:2;pointer-events:none;"></div>
+ 
+    <!-- Stimulus word — vertically centred -->
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative;z-index:1;">
+      <div id="iat-stimulus" style="font-size:2rem;font-weight:700;text-align:center;padding:0 16px;line-height:1.2;"></div>
+      <!-- Error feedback overlay -->
+      <div id="iat-error-feedback"
+        style="display:none;position:absolute;inset:0;flex-direction:column;justify-content:center;align-items:center;background:rgba(255,69,58,0.10);">
+        <span style="font-size:3.5rem;color:#ff453a;line-height:1;">&#x2715;</span>
+      </div>
+    </div>
+ 
+    <!-- Progress bar at bottom -->
+    <div style="position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--bg-elevated);z-index:2;">
+      <div id="iat-progress-bar" style="height:100%;background:var(--accent);width:0%;transition:width 0.15s linear;"></div>
+    </div>
+ 
+    <!-- Full-screen left/right tap zones -->
+    <button id="iat-left-zone"
+      style="position:absolute;inset:0;right:50%;background:transparent;border:none;cursor:pointer;z-index:3;-webkit-tap-highlight-color:transparent;outline:none;"
+      aria-label="Left response"></button>
+    <button id="iat-right-zone"
+      style="position:absolute;inset:0;left:50%;background:transparent;border:none;cursor:pointer;z-index:3;-webkit-tap-highlight-color:transparent;outline:none;"
+      aria-label="Right response"></button>
+  </div>
+ 
+  <div class="screen" id="screen-iat-iti" style="background:var(--bg);"></div>
 
   ${studyTag}
 </body>

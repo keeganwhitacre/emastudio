@@ -762,6 +762,16 @@ function collectDeviceMetadata() {
           advancePhase();
         }
         break;
+ 
+      case 'iat':
+        if (config.modules?.iat && typeof IAT !== 'undefined') {
+          IAT.start();
+        } else {
+          console.warn('IAT phase requested but module not available; skipping.');
+          advancePhase();
+        }
+        break;
+ 
       // Future modules register here. Example:
       // case 'stroop':
       //   if (config.modules?.stroop && typeof Stroop !== 'undefined') Stroop.start();
