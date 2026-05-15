@@ -430,14 +430,22 @@
         } else {
           failoverCounter = 0;
         }
-      } else {
+      } else { // activeChannel === 'green'
         const activeOk = ppGreen >= greenBaseline * FAILOVER_DROP;
         const backupOk = ppRed   >= redBaseline   * BACKUP_VIABLE;
-        if (!activeOk && backupOk) {
+        
+        // NEW: Opportunistic Recovery
+        // If Red is significantly stronger than Green (e.g., 2x stronger), 
+        // we want to switch back even if Green is technically "stable".
+        const redIsSuperior = ppRed > (ppGreen * 2.0); 
+
+        // Trigger switch IF Green is failing OR Red is dominating
+        if ((!activeOk && backupOk) || redIsSuperior) {
           failoverCounter++;
           if (failoverCounter >= ANTITHRASH_COUNT) {
             activeChannel = 'red';
-            redBaseline = ppRed > 0 ? ppRed : redBaseline;
+            // Update baseline so Red doesn't immediately fail against its old self
+            redBaseline = ppRed > 0 ? ppRed : redBaseline; 
             failoverCounter = 0;
             if (averagePeriod > 0) switchStabPeriodMs = averagePeriod * 1000;
           }
